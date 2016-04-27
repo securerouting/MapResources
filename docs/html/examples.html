@@ -1,0 +1,231 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>MapResources Examples &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="index.html" />
+    <link rel="next" title="map_resources package" href="map_resources.html" />
+    <link rel="prev" title="MapResources Installation" href="installation.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="map_resources.html" title="map_resources package"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="installation.html" title="MapResources Installation"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">map_resources  documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="mapresources-examples">
+<h1>MapResources Examples<a class="headerlink" href="#mapresources-examples" title="Permalink to this headline">¶</a></h1>
+<p>Note that the following examples are for illustration purposes only. The
+resources listed below were found at a particular instance in time.
+For a more accurate representation of organizational resources the ARIN
+whois database should be queried directly.</p>
+<div class="section" id="initiate-search-from-an-organizational-handle">
+<h2>1. Initiate search from an Organizational handle<a class="headerlink" href="#initiate-search-from-an-organizational-handle" title="Permalink to this headline">¶</a></h2>
+<p>Suppose we wish to obtain the graph of resources assigned ARIN. We
+know that one of the organizational handles for ARIN is &#8216;ARIN&#8217;, thus
+we can use this handle as one of our starting points:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python map_whois.py -X -o ARIN -g ARIN.svg
+</pre></div>
+</div>
+<p>The -o option specifies the organizational handle of &#8216;ARIN&#8217;, while
+the -g option specifies the name of the file for the resource graph.</p>
+<p>The -X option in the above command specifies that no caching is to
+be performed during query lookup.</p>
+<p>If the -H option were used instead of the -X option, the script would
+use a hash store as the caching store instead.  The hash data store
+allows scripts that wrap around the map_resources module to make use of
+cached values in subsequent calls to the graph generation routine.
+However, the hash data is still non-persistent.  In order to use a
+persistent data store the above script should be called with the &#8216;-D
+host:port&#8217; option. The -D option is the default.</p>
+<p>The graph produced by the above command is shown below:</p>
+<a class="reference internal image-reference" href="_images/ARIN-t25.svg"><img height="500px" src="_images/ARIN-t25.svg" width="1000px" /></a>
+<p>We note the following:</p>
+<ul class="simple">
+<li>Only a single network block is shown. For ARIN, this
+is likely an incomplete set.</li>
+<li>The ARIN block is grayed out.
+This indicates that the number of resource dependencies from the
+ARIN block exceeded some threshold. The hover text that appears
+over the grayed block indicates that the number of resources for
+<a class="reference external" href="http://whois.arin.net/rest/org/ARIN/nets">http://whois.arin.net/rest/org/ARIN/nets</a> is 51, which is clearly
+above our default threshold of 25.</li>
+</ul>
+</div>
+<div class="section" id="initiate-search-from-an-organizational-handle-with-a-larger-threshold">
+<h2>2. Initiate search from an Organizational handle, with a larger threshold<a class="headerlink" href="#initiate-search-from-an-organizational-handle-with-a-larger-threshold" title="Permalink to this headline">¶</a></h2>
+<p>If we re-run the above command (this time, with a local DB store)
+with the -t 51 option, we get a different output:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python map_whois.py -o ARIN -t 51 -g ARIN.svg
+</pre></div>
+</div>
+<img src="_images/ARIN-t51.svg" /><p>As can be seen from the figure, a much larger set of resources are
+returned now.</p>
+</div>
+<div class="section" id="initiate-search-from-multiple-handles">
+<h2>3. Initiate search from multiple handles<a class="headerlink" href="#initiate-search-from-multiple-handles" title="Permalink to this headline">¶</a></h2>
+<p>A search for &#8216;ARIN&#8217; on <a class="reference external" href="http://whois.arin.net">http://whois.arin.net</a> indicates that
+two ASNs, AS10745 and AS394018, not depicted in the figure above are
+also assigned to ARIN. In order to include these resources in our
+resource graph, we can renew the search using multiple starting handles.
+Note that since we make use of a local persistant data store, resources
+that were fetched previously are not re-queried.</p>
+<p>The command that we use and the image that is produced as a result are
+as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
+        -t 51 -g ARIN.svg
+</pre></div>
+</div>
+<img src="_images/ARIN-multiple.svg" /><p>The figure shows two different clusters of resources. This explains why
+the combined set of resources could not be found with the &#8216;ARIN&#8217; handle
+alone.</p>
+</div>
+<div class="section" id="comparison-against-route-views">
+<h2>4. Comparison against Route Views<a class="headerlink" href="#comparison-against-route-views" title="Permalink to this headline">¶</a></h2>
+<p>The -R option enables map_whois.py to find new resource handles
+after a comparison with Route Views data.</p>
+<p>NOTE: The Route Views data has to be stored into a database first.</p>
+<p>New resources are identified in two ways:</p>
+<ul class="simple">
+<li>ASNs that were previously unknown, but which originated known
+prefixes.</li>
+<li>Prefixes that were previously unknown, but which are originated by
+known ASNs.</li>
+</ul>
+<p>In addition, this option also checks whether any known prefixes were
+originated by an ASN other than the one listed in ARIN&#8217;s Whois database.</p>
+<p>For example, given an SQLite file &#8216;rib.sqlite&#8217; containing the Route
+Views RIB data, the following command lists a number of &#8216;unknown&#8217; ASNs:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
+        -t 51 -g ARIN.svg -R rib.sqlite
+</pre></div>
+</div>
+<p>However most (if not all) such ASNs correspond to different clusters of
+resources that belong to other organizations that are recipients of
+resource assignments from ARIN. If any of these clusters are not
+re-assignments, resources within such clusters can be used as additional
+starting points in the resource graph construction process.</p>
+</div>
+<div class="section" id="generation-of-a-report">
+<h2>5. Generation of a report<a class="headerlink" href="#generation-of-a-report" title="Permalink to this headline">¶</a></h2>
+<p>Determining a complete list of starting handles is an iterative
+process. Once a list of handles has been obtained, a report listing out
+the different resources found as part of the mapping operation can be
+generated using the -r option to map_whois:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
+    -t 51 -g ARIN.svg -r report.html
+</pre></div>
+</div>
+<p>Note that the report formating is highly primitive and is a work in
+progress.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">MapResources Examples</a><ul>
+<li><a class="reference internal" href="#initiate-search-from-an-organizational-handle">1. Initiate search from an Organizational handle</a></li>
+<li><a class="reference internal" href="#initiate-search-from-an-organizational-handle-with-a-larger-threshold">2. Initiate search from an Organizational handle, with a larger threshold</a></li>
+<li><a class="reference internal" href="#initiate-search-from-multiple-handles">3. Initiate search from multiple handles</a></li>
+<li><a class="reference internal" href="#comparison-against-route-views">4. Comparison against Route Views</a></li>
+<li><a class="reference internal" href="#generation-of-a-report">5. Generation of a report</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="installation.html"
+                        title="previous chapter">MapResources Installation</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="map_resources.html"
+                        title="next chapter">map_resources package</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/examples.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+      |
+      <a href="_sources/examples.txt"
+          rel="nofollow">Page source</a></li>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,1245 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>map_resources.analyze &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">map_resources  documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for map_resources.analyze</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Analyze and report on resource clusters.</span>
+
+<span class="sd">This module analyzes the data that was fetched through the ARIN RESTful</span>
+<span class="sd">API and generates reportable output. It also implements the helper class</span>
+<span class="sd">that is used for processing Command line input to any driver scripts.</span>
+
+<span class="sd">Attributes:</span>
+<span class="sd">  verbose (boolean): Turns on verbosity of log messages.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">net</span>
+<span class="kn">from</span> <span class="nn">pprint</span> <span class="kn">import</span> <span class="n">pprint</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">bson</span> <span class="kn">import</span> <span class="n">json_util</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+<span class="kn">from</span> <span class="nn">json2html</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="nn">StringIO</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">netaddr</span>
+<span class="kn">import</span> <span class="nn">community</span>
+<span class="kn">from</span> <span class="nn">random</span> <span class="kn">import</span> <span class="n">randint</span>
+
+<span class="kn">import</span> <span class="nn">map_resources.fetch_whois</span> <span class="kn">as</span> <span class="nn">fetch_whois</span>
+<span class="kn">import</span> <span class="nn">map_resources.whois_rv_cmp</span> <span class="kn">as</span> <span class="nn">whois_rv_cmp</span>
+
+<span class="c"># Default graph layout</span>
+<span class="n">LAYOUT</span> <span class="o">=</span> <span class="s">&#39;neato&#39;</span>
+
+<span class="c"># default values for MongoDB</span>
+<span class="n">DBHOST</span> <span class="o">=</span> <span class="s">&#39;localhost&#39;</span>
+<span class="n">DBPORT</span> <span class="o">=</span> <span class="mi">27017</span>
+
+<span class="c"># Legacy resource was registered prior to this date </span>
+<span class="n">LEGACY</span> <span class="o">=</span> <span class="s">&#39;1997-12-22&#39;</span>
+
+<span class="k">global</span> <span class="n">verbose</span>
+<span class="n">verbose</span> <span class="o">=</span> <span class="bp">False</span>
+
+
+<div class="viewcode-block" id="WhoisAnalyzer"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer">[docs]</a><span class="k">class</span> <span class="nc">WhoisAnalyzer</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot; Define a class for analyzing a list of collection objects. &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Instantiate a WhoisAnalyzer object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            store (GenericStore): The store to use for fetching data.</span>
+
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        to be filtered.</span>
+
+<span class="sd">            blacklist (list of string): Object handles that are to be</span>
+<span class="sd">                                        filtered. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="n">store</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="o">=</span> <span class="n">threshold</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span> <span class="o">=</span> <span class="n">whitelist</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span> <span class="o">=</span> <span class="n">blacklist</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">messages</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">starthandles</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">resob</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="WhoisAnalyzer.append_message"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.append_message">[docs]</a>    <span class="k">def</span> <span class="nf">append_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Append a new message to the analyzer object.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.get_messages"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.get_messages">[docs]</a>    <span class="k">def</span> <span class="nf">get_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return messages.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">messages</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.get_resobj"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.get_resobj">[docs]</a>    <span class="k">def</span> <span class="nf">get_resobj</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Get the collection container object.</span>
+<span class="sd">            </span>
+<span class="sd">        Return Values:</span>
+<span class="sd">            The WhoisCollection object that serves as the </span>
+<span class="sd">            handle to the collection container</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.fetch"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.fetch">[docs]</a>    <span class="k">def</span> <span class="nf">fetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">,</span> <span class="n">loc</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Fetch the data corresponding to the given type and loc str.</span>
+
+<span class="sd">        If we have a collection object try fetching through that first</span>
+<span class="sd">        in order to get the benefit of caching. Otherwise look at the</span>
+<span class="sd">        data store</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ctype (str): Collection type.</span>
+<span class="sd">            loc (str): The ID string.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The result object structure.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="p">:</span>
+            <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">res</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">res</span> 
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.process_new_collection"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.process_new_collection">[docs]</a>    <span class="k">def</span> <span class="nf">process_new_collection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">comment</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Process a new collection of given type and handle.</span>
+
+<span class="sd">        Create a new collection object with the given type. Reuse the</span>
+<span class="sd">        cache and the data store if available, but dont link to any</span>
+<span class="sd">        other collection object. Finally, subsume the resulting object</span>
+<span class="sd">        into the main collection container object within self.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            t (str): Collection type.</span>
+<span class="sd">            h (str): The collection handle.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">tt</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">comment</span><span class="p">:</span>
+            <span class="n">tt</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">comment</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="p">:</span>
+            <span class="n">cache</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">get_cache</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cache</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;poc&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">POCCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;asn&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">ASNCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;org&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">OrgCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;net&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">NetCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;cidr&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">CIDRCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;ip&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">IPCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;url&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">URLCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s">&#39;orgstr&#39;</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">OrgstrCollection</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">,</span>
+                    <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                    <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">o</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">starthandles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+            <span class="n">o</span><span class="o">.</span><span class="n">do_slurp</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">subsume</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">resob</span> <span class="o">=</span> <span class="n">o</span> 
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.analyze"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.analyze">[docs]</a>    <span class="k">def</span> <span class="nf">analyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objlist</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Analyze a list of handles.</span>
+
+<span class="sd">        Each handle in the list is used as a starting point for the</span>
+<span class="sd">        collection of resources through the process_new_collection()</span>
+<span class="sd">        method. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            objlist (dict): A dict of handles-&gt;type mappings.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">objlist</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c"># The dict key corresponds to the resource handle</span>
+            <span class="c"># The dict value corresponds to the resource &#39;type&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">process_new_collection</span><span class="p">(</span><span class="n">objlist</span><span class="p">[</span><span class="n">k</span><span class="p">],</span> <span class="n">k</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.generate_clusters"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.generate_clusters">[docs]</a>    <span class="k">def</span> <span class="nf">generate_clusters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Group resources according to their subgraphs.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple consisting of a dict of resources, a dict of links</span>
+<span class="sd">            in the graph and the list of handles that were filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">get_resources</span><span class="p">()</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">get_filtered</span><span class="p">()</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span><span class="o">.</span><span class="n">get_links</span><span class="p">()</span>
+        <span class="n">communities</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+        <span class="c"># Filter the links to nodes that are on our filter list </span>
+        <span class="n">lfilt</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">l</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">x</span><span class="p">:</span>
+                <span class="n">lfilt</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">l</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">if</span> <span class="n">e</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">x</span><span class="p">]</span>
+        <span class="n">G</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">from_dict_of_lists</span><span class="p">(</span><span class="n">lfilt</span><span class="p">)</span>
+        <span class="n">graphs</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">connected_component_subgraphs</span><span class="p">(</span><span class="n">G</span><span class="p">)</span>
+        <span class="n">resources</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">links</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="c"># Just pick the subgraphs and the links that are relevant</span>
+        <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">graphs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">g</span><span class="o">.</span><span class="n">size</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">community</span><span class="o">.</span><span class="n">best_partition</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> 
+            <span class="n">c</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+            <span class="n">relevant</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">nodes</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">starthandles</span><span class="p">:</span>
+                    <span class="n">relevant</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">r</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="k">for</span> <span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span> <span class="ow">in</span> <span class="n">r</span><span class="p">[</span><span class="n">t</span><span class="p">]:</span>
+                        <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="n">handle</span><span class="p">:</span>
+                            <span class="n">c</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">handle</span><span class="p">,</span> <span class="n">idstr</span><span class="p">))</span>
+                            <span class="k">break</span>
+            <span class="k">if</span> <span class="n">relevant</span><span class="p">:</span>
+                <span class="n">resources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+                <span class="k">for</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+                    <span class="n">links</span><span class="p">[</span><span class="n">s</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+                    <span class="n">communities</span><span class="p">[</span><span class="n">s</span><span class="p">]</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+                    <span class="n">communities</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">resources</span><span class="p">,</span> <span class="n">links</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">communities</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.pack"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.pack">[docs]</a>    <span class="k">def</span> <span class="nf">pack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resources</span><span class="p">,</span> <span class="n">links</span><span class="p">,</span> <span class="n">filtered</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Pack resource and links into a dict.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            resources (dict): A dict of resources indexed by type</span>
+<span class="sd">            links (dict): A dict of links</span>
+<span class="sd">            filtered (list): A list of handles that are to be filtered</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict that has &#39;resources&#39; and &#39;links&#39; as two of its keys.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">clust_res</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">clust_res</span><span class="p">[</span><span class="s">&#39;resources&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resources</span>
+        <span class="n">clust_res</span><span class="p">[</span><span class="s">&#39;links&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">links</span>    
+        <span class="n">clust_res</span><span class="p">[</span><span class="s">&#39;filtered&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">filtered</span>    
+        <span class="k">return</span> <span class="n">clust_res</span>
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.unpack"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.unpack">[docs]</a>    <span class="k">def</span> <span class="nf">unpack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">clustobj</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Unpack a dict containing resources and links.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            clustobj(dict): A dict that has &#39;resources&#39; and &#39;links&#39; as</span>
+<span class="sd">                            two of its keys.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple of three elements:</span>
+<span class="sd">                A dict of resources indexed by type</span>
+<span class="sd">                A dict of links</span>
+<span class="sd">                A list of handles that are to be filtered</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">clustobj</span><span class="p">[</span><span class="s">&#39;resources&#39;</span><span class="p">],</span> 
+                <span class="n">clustobj</span><span class="p">[</span><span class="s">&#39;links&#39;</span><span class="p">],</span>
+                <span class="n">clustobj</span><span class="p">[</span><span class="s">&#39;filtered&#39;</span><span class="p">])</span>
+
+</div>
+<div class="viewcode-block" id="WhoisAnalyzer.generate_results"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisAnalyzer.generate_results">[docs]</a>    <span class="k">def</span> <span class="nf">generate_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">options</span><span class="p">,</span> <span class="n">rvf</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate various result components.</span>
+
+<span class="sd">        The different result components can include a report file, a JSON</span>
+<span class="sd">        structure with cluster information, a Graphviz graph and a plot</span>
+<span class="sd">        of the graph using matplotlib.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            options(dict):  A dict containing the following parameters:</span>
+
+<span class="sd">                reportfile(file handle): If not None, the target file to</span>
+<span class="sd">                                         write the HTML report into.</span>
+
+<span class="sd">                jsonfile(file handle) : The target file for raw jason</span>
+<span class="sd">                                        resource information.</span>
+
+<span class="sd">                cjsonfile(file handle) : The target file for jason</span>
+<span class="sd">                                        cluster information.</span>
+
+<span class="sd">                showgraph(boolean): If True, display network graph plot</span>
+<span class="sd">                                    using matplotlib.</span>
+
+<span class="sd">                graphfile(filehandle): If True, write graphviz image to</span>
+<span class="sd">                                        this file.</span>
+
+<span class="sd">                extended(boolean): If True produce extended details.</span>
+
+<span class="sd">            rvf(RouteViewsFetcher): If not None, use this object to</span>
+<span class="sd">                                    augment report with RouteViews</span>
+<span class="sd">                                    derived information.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">resob</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">options</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;No report to generate&quot;</span>
+            <span class="k">return</span>
+
+        <span class="n">r</span> <span class="o">=</span> <span class="n">ResourceReporter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">write_cluster_summary</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">messages</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">options</span><span class="p">[</span><span class="s">&#39;jsonfile&#39;</span><span class="p">]:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">write_raw_json</span><span class="p">(</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;jsonfile&#39;</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">options</span><span class="p">[</span><span class="s">&#39;cjsonfile&#39;</span><span class="p">]:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">write_cluster_json</span><span class="p">(</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;cjsonfile&#39;</span><span class="p">],</span>
+                    <span class="n">options</span><span class="p">[</span><span class="s">&#39;extended&#39;</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">options</span><span class="p">[</span><span class="s">&#39;reportfile&#39;</span><span class="p">]:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">write_report</span><span class="p">(</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;reportfile&#39;</span><span class="p">],</span>
+                    <span class="n">clusterplot</span><span class="o">=</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;clusterplot&#39;</span><span class="p">],</span>
+                    <span class="n">clustergraph</span><span class="o">=</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;clustergraph&#39;</span><span class="p">],</span>
+                    <span class="n">extended</span><span class="o">=</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;extended&#39;</span><span class="p">],</span> <span class="n">rvf</span><span class="o">=</span><span class="n">rvf</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">options</span><span class="p">[</span><span class="s">&#39;graphfile&#39;</span><span class="p">]:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">plot_graph</span><span class="p">(</span><span class="n">options</span><span class="p">[</span><span class="s">&#39;graphfile&#39;</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">options</span><span class="p">[</span><span class="s">&#39;showgraph&#39;</span><span class="p">]:</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">display_graph</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="WhoisObjectFormatter"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisObjectFormatter">[docs]</a><span class="k">class</span> <span class="nc">WhoisObjectFormatter</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot; A class that allows us to format data received from whois.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">getter</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Constructor</span>
+
+<span class="sd">            Args:</span>
+<span class="sd">                getter(Object): An object that implements the fetch() method</span>
+<span class="sd">                                for returning whois data. Currently the</span>
+<span class="sd">                                only two classes that implement this</span>
+<span class="sd">                                method are GenericStore (and its</span>
+<span class="sd">                                subclasses) and WhoisAnalyzer </span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">getter</span> <span class="o">=</span> <span class="n">getter</span>
+
+<div class="viewcode-block" id="WhoisObjectFormatter.get_netinfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisObjectFormatter.get_netinfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_netinfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loc</span><span class="p">,</span> <span class="n">rvf</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate net info.</span>
+
+<span class="sd">        Build a dict structure that contains information such as the</span>
+<span class="sd">        registration date, the different netblocks, and the network</span>
+<span class="sd">        handle. Also fetch information from the routing table if we have</span>
+<span class="sd">        access to a Route Views database.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            loc(str): The object identifier.</span>
+
+<span class="sd">            rvf(RouteViewsFetcher): If not None, fetch information such</span>
+<span class="sd">                                    as routed netbocks and origination</span>
+<span class="sd">                                    AS in order to determine if any</span>
+<span class="sd">                                    network resources are originated by</span>
+<span class="sd">                                    resources in a different cluster.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure with the following keys:</span>
+<span class="sd">                &#39;handle&#39;: network handle</span>
+<span class="sd">                &#39;regstration&#39;: registration date</span>
+<span class="sd">                &#39;netblocks&#39;: a JSONized string of a list of network blocks</span>
+<span class="sd">                &#39;routed&#39;: a JSONized string of a list of routed network blocks</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">resobj</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getter</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span> <span class="ow">and</span> <span class="s">&#39;net&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;handle&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">LEGACY</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="c"># Strip leading 0s</span>
+            <span class="n">startAdd</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">y</span> <span class="k">if</span> <span class="n">y</span> <span class="o">!=</span> <span class="s">&quot;&quot;</span> <span class="k">else</span> <span class="s">&#39;0&#39;</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">&#39;0&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;startAddress&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)))</span>
+            <span class="n">endAdd</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">y</span> <span class="k">if</span> <span class="n">y</span> <span class="o">!=</span> <span class="s">&quot;&quot;</span> <span class="k">else</span> <span class="s">&#39;0&#39;</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">&#39;0&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;endAddress&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)))</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;cidrs&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">netaddr</span><span class="o">.</span><span class="n">iprange_to_cidrs</span><span class="p">(</span><span class="n">netaddr</span><span class="o">.</span><span class="n">IPAddress</span><span class="p">(</span><span class="n">startAdd</span><span class="p">),</span> <span class="n">netaddr</span><span class="o">.</span><span class="n">IPAddress</span><span class="p">(</span><span class="n">endAdd</span><span class="p">))]</span>
+            <span class="c">#resobj[&#39;netBlocks&#39;] = json_util.dumps(obj[&#39;net&#39;][&#39;netBlocks&#39;])</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+
+            <span class="c"># Check for blocks in route views</span>
+            <span class="k">if</span> <span class="n">rvf</span><span class="p">:</span>
+                <span class="n">nblist</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">rows</span> <span class="o">=</span> <span class="n">rvf</span><span class="o">.</span><span class="n">find_netblocks</span><span class="p">(</span><span class="n">startAdd</span><span class="p">,</span> <span class="n">endAdd</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+                    <span class="n">nb</span> <span class="o">=</span> <span class="p">{}</span>
+                    <span class="n">nb</span><span class="p">[</span><span class="s">&#39;prefix&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="c"># Add the &#39;AS&#39; prefix</span>
+                    <span class="n">nb</span><span class="p">[</span><span class="s">&#39;lastAS&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;AS&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                    <span class="n">nb</span><span class="p">[</span><span class="s">&#39;inCluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+                    <span class="k">for</span> <span class="n">cid</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+                        <span class="k">if</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">asnlist</span> <span class="o">=</span> <span class="p">[</span><span class="n">h</span> <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="s">&#39;asn&#39;</span><span class="p">]]</span>
+                            <span class="k">if</span> <span class="n">nb</span><span class="p">[</span><span class="s">&#39;lastAS&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">asnlist</span><span class="p">:</span>
+                                <span class="n">nb</span><span class="p">[</span><span class="s">&#39;inCluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+                                <span class="k">break</span>
+                    <span class="n">nblist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nb</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">nblist</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;routed&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">json_util</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">nblist</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">resobj</span>
+</div>
+<div class="viewcode-block" id="WhoisObjectFormatter.get_orginfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisObjectFormatter.get_orginfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_orginfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loc</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate org info.</span>
+
+<span class="sd">        Build a dict structure that contains organization related</span>
+<span class="sd">        information. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            loc(str): The object identifier.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure with the following keys:</span>
+<span class="sd">                &#39;handle&#39;: organizational handle</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">resobj</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getter</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;org&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span> <span class="ow">and</span> <span class="s">&#39;org&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;handle&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;org&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;org&#39;</span><span class="p">][</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">LEGACY</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;org&#39;</span><span class="p">][</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">resobj</span>
+</div>
+<div class="viewcode-block" id="WhoisObjectFormatter.get_pocinfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisObjectFormatter.get_pocinfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_pocinfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loc</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate poc info.</span>
+
+<span class="sd">        Build a dict structure that contains Point of Contact related</span>
+<span class="sd">        information. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            loc(str): The object identifier.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure with the following keys:</span>
+<span class="sd">                &#39;handle&#39;: POC handle</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">resobj</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getter</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;poc&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span> <span class="ow">and</span> <span class="s">&#39;poc&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;handle&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">LEGACY</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">if</span> <span class="s">&#39;companyName&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;companyName&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;companyName&#39;</span><span class="p">]</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+            <span class="k">if</span> <span class="s">&#39;lastName&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;lastName&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="s">&#39;firstName&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="s">&quot;, &quot;</span> <span class="o">+</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;firstName&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="s">&#39;phones&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;phones&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;phones&#39;</span><span class="p">]</span> 
+            <span class="k">if</span> <span class="s">&#39;emails&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;emails&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;emails&#39;</span><span class="p">]</span> 
+        <span class="k">return</span> <span class="n">resobj</span>
+</div>
+<div class="viewcode-block" id="WhoisObjectFormatter.get_asninfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisObjectFormatter.get_asninfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_asninfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loc</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate asn info.</span>
+
+<span class="sd">        Build a dict structure that contains ASN related</span>
+<span class="sd">        information. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            loc(str): The object identifier.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure with the following keys:</span>
+<span class="sd">                &#39;handle&#39;: ASN handle</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">resobj</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getter</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span> <span class="ow">and</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;handle&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;registrationDate&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">LEGACY</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;legacy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">resobj</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">resobj</span>
+
+</div></div>
+<div class="viewcode-block" id="ResourceReporter"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter">[docs]</a><span class="k">class</span> <span class="nc">ResourceReporter</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot; This class formats cluster information for reporting.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">,</span> <span class="n">resources</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">links</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">filtered</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Instantiate a ResourceReporter object.</span>
+
+<span class="sd">        Get aggregated resources and associate each cluster with an ID.</span>
+<span class="sd">        If no cluster information is passed through the resources, links</span>
+<span class="sd">        and filtered parameter, generate cluster information from the</span>
+<span class="sd">        analyzer object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            analyzer (WhoisAnalyzer): The WhoisAnalyzer object.</span>
+<span class="sd">            resources (dict): The cluster information to report about.</span>
+<span class="sd">            links (dict): The links associated with the clusters.</span>
+<span class="sd">            filtered (list): The list of handles that are to be filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span> <span class="o">=</span> <span class="n">analyzer</span>
+        <span class="c"># Identify resource information through the analyzer object first</span>
+        <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">communities</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">generate_clusters</span><span class="p">()</span>
+        <span class="c"># Override with any values provided as params</span>
+        <span class="k">if</span> <span class="n">resources</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">resources</span> <span class="o">=</span> <span class="n">resources</span>
+        <span class="k">if</span> <span class="n">links</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">links</span> <span class="o">=</span> <span class="n">links</span>
+        <span class="k">if</span> <span class="n">filtered</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span> <span class="o">=</span> <span class="n">filtered</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">cid</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">c</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="n">c</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                        <span class="c"># Save the handles</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">))</span>
+                <span class="n">cid</span> <span class="o">+=</span> <span class="mi">1</span>
+
+
+<div class="viewcode-block" id="ResourceReporter.plot_resources"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.plot_resources">[docs]</a>    <span class="k">def</span> <span class="nf">plot_resources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plotfile</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Scatter Plot number of URLs and IPs in each cluster.</span>
+
+<span class="sd">        Produce a Scatter Plot of the number of resources of each type</span>
+<span class="sd">        in each cluster. Annotate the top 10 clusters in terms of</span>
+<span class="sd">        resource density.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            plotfile (str, default=None): Graph file to write to</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A base64 encoded image of the scatter plot.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">polar</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">cid</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cid</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">rtype</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="s">&#39;poc&#39;</span><span class="p">,</span> <span class="s">&#39;org&#39;</span><span class="p">,</span> <span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="s">&#39;cidr&#39;</span><span class="p">,</span> <span class="s">&#39;ip&#39;</span><span class="p">,</span> <span class="s">&#39;url&#39;</span><span class="p">):</span>
+                <span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">rtype</span><span class="p">]))</span>
+
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span><span class="mi">8</span><span class="p">))</span>
+        <span class="n">fig</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="s">&quot;Resource Aggregation (Total clusters = &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">))</span> <span class="o">+</span> <span class="s">&quot;)&quot;</span><span class="p">)</span>
+
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">240</span>
+        <span class="k">for</span> <span class="n">rtype</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="s">&#39;poc&#39;</span><span class="p">,</span> <span class="s">&#39;org&#39;</span><span class="p">,</span> <span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="s">&#39;cidr&#39;</span><span class="p">,</span> <span class="s">&#39;ip&#39;</span><span class="p">,</span> <span class="s">&#39;url&#39;</span><span class="p">):</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="n">offset</span><span class="p">,</span> <span class="n">polar</span><span class="o">=</span><span class="n">polar</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="n">rtype</span> <span class="o">+</span> <span class="s">&quot; per cluster&quot;</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_xticks</span><span class="p">([])</span>
+            <span class="c"># annotate the top 10</span>
+            <span class="n">alist</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">])),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">][</span><span class="n">i</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">alist</span><span class="p">:</span>
+                <span class="n">ax</span><span class="o">.</span><span class="n">annotate</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">),</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">][</span><span class="n">i</span><span class="p">]),</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;red&#39;</span><span class="p">)</span>
+            <span class="c"># For size add 1 to avoid divide by 0 issues</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">]]</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">[</span><span class="n">rtype</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">hsv</span><span class="p">)</span>
+            <span class="n">c</span><span class="o">.</span><span class="n">set_alpha</span><span class="p">(</span><span class="mf">0.75</span><span class="p">)</span>
+
+        <span class="c">#plt.show()</span>
+        <span class="k">if</span> <span class="n">plotfile</span><span class="p">:</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">plotfile</span><span class="p">)</span>
+        <span class="n">sio</span> <span class="o">=</span> <span class="n">StringIO</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">sio</span><span class="p">,</span> <span class="n">format</span><span class="o">=</span><span class="s">&#39;png&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">sio</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;base64&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.get_agraph"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.get_agraph">[docs]</a>    <span class="k">def</span> <span class="nf">get_agraph</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">G</span><span class="p">,</span> <span class="n">o</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate a Graphviz Agraph from graph information.</span>
+
+<span class="sd">        Produce the Agraph from the networkx object. Also set node</span>
+<span class="sd">        attributes from the values stored in the different</span>
+<span class="sd">        WhoisCollection objects.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            G(Graph): A networkx graph object.</span>
+<span class="sd">            o(dict): A dict of object collections indexed by the origin handle.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A graphviz Agraph.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Add the nodes that were filtered</span>
+        <span class="c">#G.add_nodes_from(self.filtered)</span>
+        <span class="n">A</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">to_agraph</span><span class="p">(</span><span class="n">G</span><span class="p">)</span>
+        <span class="n">cmaplen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">communities</span><span class="o">.</span><span class="n">values</span><span class="p">())))</span>
+        <span class="n">colors</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;#</span><span class="si">%06X</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mh">0xFFFFFF</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cmaplen</span><span class="p">)]</span>
+        <span class="k">for</span> <span class="n">node_h</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">nodes</span><span class="p">():</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="n">A</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="n">node_h</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">node_h</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">o</span><span class="p">[</span><span class="n">node_h</span><span class="p">]:</span>
+                    <span class="c"># We need the parent object, since that&#39;s what the</span>
+                    <span class="c"># handle points to</span>
+                    <span class="n">pobj</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">get_parent</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">pobj</span><span class="p">:</span>
+                        <span class="n">pobj</span><span class="o">.</span><span class="n">fill_draw_attribs</span><span class="p">(</span><span class="n">node_h</span><span class="p">,</span> <span class="n">n</span><span class="o">.</span><span class="n">attr</span><span class="p">)</span>
+                    <span class="n">n</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s">&#39;style&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;filled&#39;</span>
+                    <span class="n">n</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s">&#39;fillcolor&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">colors</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">communities</span><span class="p">[</span><span class="n">node_h</span><span class="p">]]</span> <span class="o">+</span> <span class="s">&quot;:white&quot;</span>
+                    <span class="c"># All parent objects in the list will be the same</span>
+                    <span class="k">break</span>
+        <span class="k">return</span> <span class="n">A</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.display_graph"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.display_graph">[docs]</a>    <span class="k">def</span> <span class="nf">display_graph</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Display the resource graph using matplotlib.&quot;&quot;&quot;</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">links</span>
+        <span class="n">G</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">from_dict_of_lists</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+        <span class="n">net</span><span class="o">.</span><span class="n">set_node_attributes</span><span class="p">(</span><span class="n">G</span><span class="p">,</span> <span class="s">&#39;community&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">communities</span><span class="p">)</span>
+        <span class="c"># Display the graph using matplotlib</span>
+        <span class="n">labels</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">node_h</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">nodes</span><span class="p">():</span>
+            <span class="n">labels</span><span class="p">[</span><span class="n">node_h</span><span class="p">]</span> <span class="o">=</span> <span class="n">node_h</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">graphviz_layout</span><span class="p">(</span><span class="n">G</span><span class="p">,</span> <span class="n">prog</span><span class="o">=</span><span class="n">LAYOUT</span><span class="p">)</span>
+        <span class="n">net</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="n">G</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="n">pos</span><span class="p">,</span> <span class="n">node_size</span><span class="o">=</span><span class="mi">40</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">node_h</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">:</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">annotate</span><span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="n">node_h</span><span class="p">],</span> <span class="n">xy</span><span class="o">=</span><span class="n">pos</span><span class="p">[</span><span class="n">node_h</span><span class="p">])</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.plot_graph"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.plot_graph">[docs]</a>    <span class="k">def</span> <span class="nf">plot_graph</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outputfile</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Build a graph of whois resources.</span>
+
+<span class="sd">        Use graphviz to build the graph. Default format is neato</span>
+<span class="sd">        The graph format is either png or svg.</span>
+<span class="sd">        An svg image can show tooltips.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            outputfile(file handle): If not None, write graph to this file.    </span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A base64 encoded image of the whois resource graph.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">resob</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">get_resobj</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">resob</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">links</span>
+        <span class="n">G</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">from_dict_of_lists</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+        <span class="n">o</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_collections</span><span class="p">()</span>
+        <span class="n">A</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_agraph</span><span class="p">(</span><span class="n">G</span><span class="p">,</span> <span class="n">o</span><span class="p">)</span>
+<span class="c">#        A.layout(prog=LAYOUT, args=&#39;-Goverlap=false -Gsize=12,8\!&#39;)</span>
+        <span class="c">#A.layout(prog=LAYOUT, args=&#39;-Goverlap=false&#39;)</span>
+        <span class="n">A</span><span class="o">.</span><span class="n">layout</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="n">LAYOUT</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="s">&#39;-Goverlap=false -Gsplines=true&#39;</span><span class="p">)</span>
+<span class="c">#       print A.to_string()</span>
+        <span class="k">if</span> <span class="n">outputfile</span><span class="p">:</span>
+            <span class="n">A</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="n">outputfile</span><span class="p">)</span>
+        <span class="c"># Return the base64 encoded image</span>
+        <span class="n">sio</span> <span class="o">=</span> <span class="n">StringIO</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">A</span><span class="o">.</span><span class="n">draw</span><span class="p">(</span><span class="n">sio</span><span class="p">,</span> <span class="n">format</span><span class="o">=</span><span class="s">&#39;png&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">sio</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;base64&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.get_clusterinfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.get_clusterinfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_clusterinfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extended</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">rvf</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return cluster info.</span>
+
+<span class="sd">        Build a list of cluster information along with relevant network</span>
+<span class="sd">        information for reporting.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            extended(boolean): If True produce additional details.</span>
+
+<span class="sd">            rvf(RouteViewsFetcher): If not None, fetch information from</span>
+<span class="sd">                                    a RouteViews database to augment</span>
+<span class="sd">                                    reported cluster information.</span>
+
+<span class="sd">        Returns:</span>
+
+<span class="sd">            A dict that contains for each cluster, a list of resources</span>
+<span class="sd">            against each resource type.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">clust</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+            <span class="n">cid</span> <span class="o">=</span> <span class="s">&quot;clusterID(&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;)&quot;</span>
+            <span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">c</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+                <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">clusterinfo</span><span class="p">[</span><span class="n">c</span><span class="p">][</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">extended</span><span class="p">:</span>
+                        <span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">][</span><span class="s">&#39;resources&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c"># Always try to get whois information through the analyze object</span>
+                        <span class="c"># This ensures that we take advantage of any caching. </span>
+                        <span class="n">f</span> <span class="o">=</span> <span class="n">WhoisObjectFormatter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;net&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_netinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">,</span> <span class="n">rvf</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;org&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_orginfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;poc&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_pocinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;asn&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_asninfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;cidr&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_netinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+                        <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;url&#39;</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_pocinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">obj</span> <span class="o">=</span> <span class="p">{}</span>
+                        <span class="k">if</span> <span class="n">obj</span><span class="p">:</span>
+                            <span class="c"># Fix the handle since we might have</span>
+                            <span class="c"># multiple ASNs that are part of the same block</span>
+                            <span class="n">obj</span><span class="p">[</span><span class="s">&#39;handle&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">h</span>
+                            <span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">][</span><span class="s">&#39;resources&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+                <span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">][</span><span class="s">&#39;length&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">clust</span><span class="p">[</span><span class="n">cid</span><span class="p">][</span><span class="n">k</span><span class="p">][</span><span class="s">&#39;resources&#39;</span><span class="p">])</span>
+        <span class="c"># { cid -&gt; { URLs | IPaddresses| Orgs | POCs | ASNs | Nets}}</span>
+        <span class="k">return</span> <span class="n">clust</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.get_raw_clusterinfo"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.get_raw_clusterinfo">[docs]</a>    <span class="k">def</span> <span class="nf">get_raw_clusterinfo</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the raw cluster information</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple consisting of a dict of resources, a dict of links</span>
+<span class="sd">            in the graph and the list of handles whose that were</span>
+<span class="sd">            filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="ResourceReporter.write_raw_json"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.write_raw_json">[docs]</a>    <span class="k">def</span> <span class="nf">write_raw_json</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">jh</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write the raw resource information in json format.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            jh(file handle): The target file for the JSON data. </span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">jh</span><span class="p">:</span>
+            <span class="n">clust_res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">)</span>
+            <span class="n">clust_json</span> <span class="o">=</span> <span class="n">json_util</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">clust_res</span><span class="p">)</span>
+            <span class="n">jh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">clust_json</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.write_cluster_json"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.write_cluster_json">[docs]</a>    <span class="k">def</span> <span class="nf">write_cluster_json</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">jh</span><span class="p">,</span> <span class="n">extended</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write the cluster information in json format.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            jh(file handle): The target file for the JSON data. </span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">jh</span><span class="p">:</span>
+            <span class="n">report</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_clusterinfo</span><span class="p">(</span><span class="n">extended</span><span class="p">)</span>
+            <span class="n">clust_json</span> <span class="o">=</span> <span class="n">json_util</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">report</span><span class="p">)</span>
+            <span class="n">jh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">clust_json</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ResourceReporter.write_cluster_summary"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.write_cluster_summary">[docs]</a>    <span class="k">def</span> <span class="nf">write_cluster_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write the cluster summary information.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            messages(array of strings): A list of messages associated</span>
+<span class="sd">                                        with the clusters.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">messages</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;Notes:&quot;</span>
+            <span class="k">print</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">messages</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;Filtered the following nodes&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">)</span>
+            <span class="n">resob</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">get_resobj</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">resob</span><span class="p">:</span>
+                <span class="n">tooltips</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_tooltip</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">tooltips</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tooltips</span><span class="p">[</span><span class="n">m</span><span class="p">]:</span>
+                            <span class="k">print</span> <span class="n">m</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span> <span class="o">+</span> <span class="n">t</span>
+
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;Resources for cluster &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">c</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">print</span> <span class="s">&quot;</span><span class="se">\t\t</span><span class="s">Resource Type: &quot;</span> <span class="o">+</span> <span class="n">k</span>
+                <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="n">c</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="k">print</span> <span class="s">&quot;</span><span class="se">\t\t\t</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">h</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\t</span><span class="s">&quot;</span> <span class="o">+</span> <span class="s">&quot;[&quot;</span> <span class="o">+</span> <span class="n">loc</span> <span class="o">+</span> <span class="s">&quot;]&quot;</span> 
+
+</div>
+<div class="viewcode-block" id="ResourceReporter.write_report"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.ResourceReporter.write_report">[docs]</a>    <span class="k">def</span> <span class="nf">write_report</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rh</span><span class="p">,</span> <span class="n">clusterplot</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">clustergraph</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">extended</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">rvf</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write cluster info</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            rh(file handle): The target file for the HTML data. </span>
+
+<span class="sd">            clusterplot(boolean): If True, generate and write cluster</span>
+<span class="sd">                                  plot information to report.</span>
+
+<span class="sd">            clustergraph(boolean): If True, generate and write network</span>
+<span class="sd">                                   resource information to report.</span>
+
+<span class="sd">            extended(boolean): If True produce additional details.</span>
+
+<span class="sd">            rvf(RouteViewsFetcher): If not None, use this object to</span>
+<span class="sd">                                    augment report with RouteViews</span>
+<span class="sd">                                    derived information.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">rh</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">clusterplot</span><span class="p">:</span>
+                <span class="n">image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">plot_resources</span><span class="p">()</span>
+                <span class="n">img_tag</span> <span class="o">=</span> <span class="s">&#39;&lt;img src=&quot;data:image/png;base64,{0}&quot;&gt;&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">img_tag</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">clustergraph</span><span class="p">:</span>
+                <span class="n">image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">plot_graph</span><span class="p">()</span>
+                <span class="n">img_tag</span> <span class="o">=</span> <span class="s">&#39;&lt;img src=&quot;data:image/png;base64,{0}&quot;&gt;&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">img_tag</span><span class="p">)</span>
+
+            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br&gt;&lt;br&gt;&lt;br&gt;&lt;h1&gt;ARIN Whois Terms Of Use:&lt;/h1&gt;&quot;</span><span class="p">)</span>
+            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;h3&gt;&lt;a href=&#39;https://www.arin.net/whois_tou.html&#39;&gt;https://www.arin.net/whois_tou.html&lt;/a&gt;&lt;/h3&gt;&quot;</span><span class="p">)</span>
+
+            <span class="n">messages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">get_messages</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br&gt;&lt;h1&gt;Notes:&lt;/h1&gt;&lt;br/&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;ul&gt;&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">:</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&quot;</span><span class="p">)</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/li&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/ul&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+
+            <span class="n">resob</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">get_resobj</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">resob</span><span class="p">:</span>
+                <span class="n">tooltips</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_tooltip</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">tooltips</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br&gt;&lt;h1&gt;Filtered the following:&lt;/h1&gt;&lt;br/&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;ul&gt;&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="p">:</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&quot;</span><span class="p">)</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">tooltips</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;ul&gt;&quot;</span><span class="p">)</span>
+                        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tooltips</span><span class="p">[</span><span class="n">m</span><span class="p">]:</span>
+                            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&quot;</span><span class="p">)</span>
+                            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+                            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/li&gt;&quot;</span><span class="p">)</span>
+                        <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/ul&gt;&quot;</span><span class="p">)</span>
+                    <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/li&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;/ul&gt;&quot;</span><span class="p">)</span>
+                <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+
+            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&lt;br&gt;&lt;h1&gt;Resources:&lt;/h1&gt;&lt;br/&gt;&quot;</span><span class="p">)</span>
+            <span class="n">report</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_clusterinfo</span><span class="p">(</span><span class="n">extended</span><span class="p">,</span> <span class="n">rvf</span><span class="p">)</span>
+            <span class="c">#result = json_util.dumps(report)</span>
+            <span class="c">#rh.write(result)</span>
+            <span class="n">json</span> <span class="o">=</span> <span class="n">json2html</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">json</span><span class="o">=</span><span class="n">report</span><span class="p">)</span>
+            <span class="n">rh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json</span><span class="p">)</span>
+
+
+</div></div>
+<div class="viewcode-block" id="WhoisOptParser"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser">[docs]</a><span class="k">class</span> <span class="nc">WhoisOptParser</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Class to parse options related to any whois interfacing script.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prog</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Constructor for the WhoisOptParser class.</span>
+
+<span class="sd">        Initialize all base options.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            prog(str): Name of the program</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="n">prog</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-v&quot;</span><span class="p">,</span> <span class="s">&quot;--verbose&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;increase output verbosity&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-a&quot;</span><span class="p">,</span> <span class="s">&quot;--asn&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given ASN handle&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-p&quot;</span><span class="p">,</span> <span class="s">&quot;--poc&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given POC handle&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-o&quot;</span><span class="p">,</span> <span class="s">&quot;--org&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given Org handle&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-n&quot;</span><span class="p">,</span> <span class="s">&quot;--net&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given Net handle&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="s">&quot;--cidr&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given CIDR block&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-i&quot;</span><span class="p">,</span> <span class="s">&quot;--ip&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given IP address&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-u&quot;</span><span class="p">,</span> <span class="s">&quot;--url&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given domain&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-s&quot;</span><span class="p">,</span> <span class="s">&quot;--orgstr&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Start from the given org string&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-L&quot;</span><span class="p">,</span> <span class="s">&quot;--resourcelist&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">parse_objs_from_file</span><span class="o">.</span><span class="n">__doc__</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(</span><span class="s">&#39;r&#39;</span><span class="p">))</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-j&quot;</span><span class="p">,</span> <span class="s">&quot;--jsonfile&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Output raw resource information in json format&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(</span><span class="s">&#39;w&#39;</span><span class="p">))</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-J&quot;</span><span class="p">,</span> <span class="s">&quot;--cjsonfile&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Output cluster information in json format&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(</span><span class="s">&#39;w&#39;</span><span class="p">))</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-e&quot;</span><span class="p">,</span> <span class="s">&quot;--extended&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Display detailed information&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span> <span class="o">=</span> <span class="n">parser</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_stores</span><span class="p">()</span>
+
+<div class="viewcode-block" id="WhoisOptParser.get_parser"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.get_parser">[docs]</a>    <span class="k">def</span> <span class="nf">get_parser</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the parser associated with this object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.host_port"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.host_port">[docs]</a>    <span class="k">def</span> <span class="nf">host_port</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;A simple type for a host:port identifier</span>
+<span class="sd">        </span>
+<span class="sd">        Throws argparse.ArgumentTypeError if the provided string is not</span>
+<span class="sd">        formated as hostname:port.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            s (str): a string of the form hostname:port</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The host(str) and port(int) tuple.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentTypeError</span><span class="p">(</span><span class="s">&quot;Host/Port must be host:port&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.add_stores"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.add_stores">[docs]</a>    <span class="k">def</span> <span class="nf">add_stores</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Register the options associated with different data store types.&quot;&quot;&quot;</span>
+        <span class="n">group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_mutually_exclusive_group</span><span class="p">()</span>
+        <span class="n">group</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-X&quot;</span><span class="p">,</span> <span class="s">&quot;--nostore&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Do not use any data store&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">)</span>
+        <span class="n">group</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-H&quot;</span><span class="p">,</span> <span class="s">&quot;--hashstore&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Use a hash store&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">)</span>
+        <span class="n">group</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-D&quot;</span><span class="p">,</span> <span class="s">&quot;--dbstore&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Use a DB store&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">host_port</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.parse_objs_from_file"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.parse_objs_from_file">[docs]</a>    <span class="k">def</span> <span class="nf">parse_objs_from_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rsrcfile</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Extract resource handles from the given file.</span>
+
+<span class="sd">        Each line of the file should be formatted as &lt;type&gt;:&lt;value&gt;,</span>
+<span class="sd">        where the different supported types are &#39;asn&#39;, &#39;poc&#39;, &#39;org&#39;,</span>
+<span class="sd">        &#39;net&#39;, &#39;cidr&#39;, &#39;ip&#39; and &#39;url&#39;.  </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            rsrcfile(file handle): </span>
+
+<span class="sd">        Return Values:</span>
+<span class="sd">            A dict object containing a mapping between</span>
+<span class="sd">            the resource handle and the resource type.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objlist</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">rsrcfile</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+            <span class="p">(</span><span class="n">rtype</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rtype</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="s">&#39;poc&#39;</span><span class="p">,</span> <span class="s">&#39;org&#39;</span><span class="p">,</span> <span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="s">&#39;cidr&#39;</span><span class="p">,</span> <span class="s">&#39;ip&#39;</span><span class="p">,</span> <span class="s">&#39;url&#39;</span><span class="p">):</span>
+                <span class="n">objlist</span><span class="p">[</span><span class="n">val</span><span class="p">]</span> <span class="o">=</span> <span class="n">rtype</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">print</span> <span class="s">&quot;Unknown token : &quot;</span> <span class="o">+</span> <span class="n">line</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">objlist</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.parse_objs"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.parse_objs">[docs]</a>    <span class="k">def</span> <span class="nf">parse_objs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Extract object handles and types from provided options.</span>
+
+<span class="sd">        The object handle could come from a file or from the relevant</span>
+<span class="sd">        option associated with each resource type.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            p(Namespace): Contains various command line parameters.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict objects whose keys correspond to the different handle</span>
+<span class="sd">            identifiers and whose values correspond to the resource</span>
+<span class="sd">            type.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objlist</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">resourcelist</span><span class="p">:</span>
+            <span class="n">objlist</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_objs_from_file</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">resourcelist</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">asn</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;asn&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">asn</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">poc</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;poc&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">poc</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">org</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;org&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">org</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">net</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;net&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">net</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">cidr</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;cidr&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">cidr</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">ip</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;ip&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">ip</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">url</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;url&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">url</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">orgstr</span><span class="p">:</span>
+            <span class="n">objd</span> <span class="o">=</span> <span class="p">{</span> <span class="n">o</span> <span class="p">:</span> <span class="s">&#39;orgstr&#39;</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">p</span><span class="o">.</span><span class="n">orgstr</span><span class="p">}</span>
+            <span class="n">objlist</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">objd</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">objlist</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.parse_store"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.parse_store">[docs]</a>    <span class="k">def</span> <span class="nf">parse_store</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Extract the store type from provided options.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            p(Namespace): Contains various command line parameters.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A GenericStore object corresponding to the selected data</span>
+<span class="sd">            store type.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">nostore</span><span class="p">:</span>
+            <span class="n">store</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">GenericStore</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">p</span><span class="o">.</span><span class="n">hashstore</span><span class="p">:</span>
+            <span class="n">store</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">HashStore</span><span class="p">()</span> 
+        <span class="k">elif</span> <span class="n">p</span><span class="o">.</span><span class="n">dbstore</span><span class="p">:</span>
+            <span class="n">dbhost</span><span class="p">,</span> <span class="n">dbport</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">dbstore</span>
+            <span class="n">store</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">DBStore</span><span class="p">(</span><span class="n">dbhost</span><span class="p">,</span> <span class="n">dbport</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">store</span> <span class="o">=</span> <span class="n">fetch_whois</span><span class="o">.</span><span class="n">DBStore</span><span class="p">(</span><span class="n">DBHOST</span><span class="p">,</span> <span class="n">DBPORT</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">store</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.parse_opts"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.parse_opts">[docs]</a>    <span class="k">def</span> <span class="nf">parse_opts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">p</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse the list of options given in the parser namespace.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            A namespace containing the different parsed options.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that contains different analyzer options.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">opts</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;verbose&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">verbose</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>
+            <span class="k">global</span> <span class="n">verbose</span>
+            <span class="n">verbose</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="n">fetch_whois</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="n">whois_rv_cmp</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;objlist&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_objs</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;store&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_store</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">extended</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;extended&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;extended&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">jsonfile</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;jsonfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">jsonfile</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;jsonfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">cjsonfile</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;cjsonfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">cjsonfile</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;cjsonfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">return</span> <span class="n">opts</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.parse"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.parse">[docs]</a>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">argv</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse the list of options.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            A list of arguments provided in argv.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that contains different analyzer options.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_opts</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisOptParser.get_help"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.WhoisOptParser.get_help">[docs]</a>    <span class="k">def</span> <span class="nf">get_help</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the formatted help text.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Str value containing formatted help text.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">format_help</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="AnalyzeOptExtension"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.AnalyzeOptExtension">[docs]</a><span class="k">class</span> <span class="nc">AnalyzeOptExtension</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Class to parse options related to any analysis driver script.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Constructor for the AnalyzeOptExtension class.</span>
+
+<span class="sd">        Add arguments that are specific to the Analyzer.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base(WhoisOptParser): The WhoisOptParser object associated with this extension.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">base</span> <span class="o">=</span> <span class="n">base</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">get_parser</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-t&quot;</span><span class="p">,</span> <span class="s">&quot;--threshold&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Maximum number of dependencies to follow&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">25</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-w&quot;</span><span class="p">,</span> <span class="s">&quot;--whitelist&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Whitelisted handles&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-b&quot;</span><span class="p">,</span> <span class="s">&quot;--blacklist&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Blacklisted handles&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;append&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-S&quot;</span><span class="p">,</span> <span class="s">&quot;--showgraph&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Dsplay the graph&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-g&quot;</span><span class="p">,</span> <span class="s">&quot;--graphfile&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Output graph image&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(</span><span class="s">&#39;w&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-r&quot;</span><span class="p">,</span> <span class="s">&quot;--reportfile&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Output report&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(</span><span class="s">&#39;w&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-G&quot;</span><span class="p">,</span> <span class="s">&quot;--clustergraph&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Include graph image in report&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-P&quot;</span><span class="p">,</span> <span class="s">&quot;--clusterplot&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Include resource plot in report&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-R&quot;</span><span class="p">,</span> <span class="s">&quot;--rvdb&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s">&quot;Check against given Route Views Database file&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
+
+<div class="viewcode-block" id="AnalyzeOptExtension.parse"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.AnalyzeOptExtension.parse">[docs]</a>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">argv</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse the list of options.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            A list of arguments provided in argv.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that contains different analyzer options.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># First call the main parse routine</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+
+        <span class="c"># Then extract base options</span>
+        <span class="n">opts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">parse_opts</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+        <span class="c"># Add extensions</span>
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;threshold&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">threshold</span>
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;whitelist&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">whitelist</span>
+        <span class="n">opts</span><span class="p">[</span><span class="s">&#39;blacklist&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">blacklist</span>
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">rvdb</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;rvdb&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">rvdb</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;rvdb&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">reportfile</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;reportfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">reportfile</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;reportfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">showgraph</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;showgraph&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">showgraph</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;showgraph&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">graphfile</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;graphfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">graphfile</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;graphfile&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">clustergraph</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;clustergraph&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">clustergraph</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;clustergraph&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">clusterplot</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;clusterplot&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">clusterplot</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">[</span><span class="s">&#39;clusterplot&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">return</span> <span class="n">opts</span>
+</div>
+<div class="viewcode-block" id="AnalyzeOptExtension.get_help"><a class="viewcode-back" href="../../map_resources.html#map_resources.analyze.AnalyzeOptExtension.get_help">[docs]</a>    <span class="k">def</span> <span class="nf">get_help</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the formatted help text.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Str value containing formatted help text.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">format_help</span><span class="p">()</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

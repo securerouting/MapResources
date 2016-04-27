@@ -1,0 +1,246 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>MapResources Installation &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="index.html" />
+    <link rel="next" title="MapResources Examples" href="examples.html" />
+    <link rel="prev" title="MapResources - A Whois Resource Discovery Tool." href="introduction.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="examples.html" title="MapResources Examples"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="introduction.html" title="MapResources - A Whois Resource Discovery Tool."
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">map_resources  documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="mapresources-installation">
+<h1>MapResources Installation<a class="headerlink" href="#mapresources-installation" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Permalink to this headline">¶</a></h2>
+<p>The MapResources package has the following external dependencies. These
+packages must be installed prior to installing the MapResources package.</p>
+<ul class="simple">
+<li>pymongo</li>
+<li>pprint</li>
+<li>urllib</li>
+<li>requests</li>
+<li>xmltodict</li>
+<li>pygraphviz</li>
+<li>networkx</li>
+<li>matplotlib</li>
+<li>json2html</li>
+<li>sqlite3</li>
+<li>ipaddress</li>
+</ul>
+<p>Some of these python packages may have additional library and system
+pacakge dependencies. For example, pygraphviz has a dependency on the
+Graphviz package.</p>
+</div>
+<div class="section" id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<p>The package can be installed by running the setup.py script as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ python setup.py install
+</pre></div>
+</div>
+</div>
+<div class="section" id="mongodb-setup">
+<h2>MongoDB Setup<a class="headerlink" href="#mongodb-setup" title="Permalink to this headline">¶</a></h2>
+<p>In order to use MongoDB as the persistent data store, follow directions
+given at <a class="reference external" href="http://docs.mongodb.org/manual/installation/">http://docs.mongodb.org/manual/installation/</a> in order to
+install MongoDB.</p>
+</div>
+<div class="section" id="route-views-database-setup">
+<h2>Route Views database setup<a class="headerlink" href="#route-views-database-setup" title="Permalink to this headline">¶</a></h2>
+<p>When trying to compare against route views data the scripts in this
+package expect the route views data to be stored in a database that has
+the following schema.</p>
+<ul class="simple">
+<li>routeadv table</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="27%" />
+<col width="73%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">Column</th>
+<th class="head">Type</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td>advId</td>
+<td>integer primary key autoincrement</td>
+</tr>
+<tr class="row-odd"><td>at</td>
+<td>integer</td>
+</tr>
+<tr class="row-even"><td>prefix</td>
+<td>varchar(255)</td>
+</tr>
+<tr class="row-odd"><td>prefixStart</td>
+<td>int</td>
+</tr>
+<tr class="row-even"><td>prefixEnd</td>
+<td>int</td>
+</tr>
+<tr class="row-odd"><td>sourceAddr</td>
+<td>varchar(255)</td>
+</tr>
+<tr class="row-even"><td>sourceAS</td>
+<td>integer</td>
+</tr>
+<tr class="row-odd"><td>originated</td>
+<td>int</td>
+</tr>
+<tr class="row-even"><td>nexthop</td>
+<td>varchar(255)</td>
+</tr>
+<tr class="row-odd"><td>lastAS</td>
+<td>integer</td>
+</tr>
+<tr class="row-even"><td>asciiPath</td>
+<td>varchar(4096)</td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li>path table</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="27%" />
+<col width="73%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">Column</th>
+<th class="head">Type</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td>pathId</td>
+<td>integer primary key autoincrement</td>
+</tr>
+<tr class="row-odd"><td>advId</td>
+<td>integer REFERENCES routeadv(advId)</td>
+</tr>
+<tr class="row-even"><td>fromAS</td>
+<td>integer</td>
+</tr>
+<tr class="row-odd"><td>toAS</td>
+<td>integer</td>
+</tr>
+<tr class="row-even"><td>count</td>
+<td>integer</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">MapResources Installation</a><ul>
+<li><a class="reference internal" href="#dependencies">Dependencies</a></li>
+<li><a class="reference internal" href="#installation">Installation</a></li>
+<li><a class="reference internal" href="#mongodb-setup">MongoDB Setup</a></li>
+<li><a class="reference internal" href="#route-views-database-setup">Route Views database setup</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="introduction.html"
+                        title="previous chapter">MapResources - A Whois Resource Discovery Tool.</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="examples.html"
+                        title="next chapter">MapResources Examples</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/installation.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+      |
+      <a href="_sources/installation.txt"
+          rel="nofollow">Page source</a></li>
+    </div>
+
+    
+
+    
+  </body>
+</html>

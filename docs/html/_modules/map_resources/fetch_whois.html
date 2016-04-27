@@ -1,0 +1,1287 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>map_resources.fetch_whois &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">map_resources  documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for map_resources.fetch_whois</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Query ARIN whois objects</span>
+
+<span class="sd">This module provides the functionality to query the ARIN RESTful API</span>
+<span class="sd">for all resource dependencies starting from the given ASN, POC, Org or</span>
+<span class="sd">Net handle.</span>
+
+<span class="sd">Attributes:</span>
+<span class="sd">  verbose (boolean): Turns on verbosity of log messages.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">from</span> <span class="nn">pymongo</span> <span class="kn">import</span> <span class="n">MongoClient</span><span class="p">,</span> <span class="n">collection</span>
+<span class="kn">from</span> <span class="nn">bson.objectid</span> <span class="kn">import</span> <span class="n">ObjectId</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">pprint</span> <span class="kn">import</span> <span class="n">pprint</span>
+<span class="kn">import</span> <span class="nn">urllib</span> 
+<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">import</span> <span class="nn">xmltodict</span>
+
+<span class="c">###############################################################</span>
+<span class="c"># Define some constants</span>
+
+<span class="c"># ARIN REST API base URL</span>
+<span class="n">BASE</span> <span class="o">=</span> <span class="s">&quot;http://whois.arin.net/rest&quot;</span> 
+
+<span class="c"># Don&#39;t follow dependencies when the count is greater</span>
+<span class="c"># than this threshold</span>
+<span class="n">THRESHOLD</span> <span class="o">=</span> <span class="mi">25</span>
+
+<span class="c">###############################################################</span>
+<span class="c"># Globals</span>
+
+<span class="k">global</span> <span class="n">verbose</span>
+<span class="n">verbose</span> <span class="o">=</span> <span class="bp">False</span>
+
+<span class="c">###############################################################</span>
+<span class="c"># The following classes implement our data store</span>
+<span class="c"># The store can be one of the following types </span>
+<span class="c"># 1) Generic: No caching, serves as our base class</span>
+<span class="c"># 2) Hash: Persistent for the process lifetime duration</span>
+<span class="c"># 3) DB: DB-based, therefore persistent on disk</span>
+
+<div class="viewcode-block" id="GenericStore"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.GenericStore">[docs]</a><span class="k">class</span> <span class="nc">GenericStore</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Base class for all data stores with no caching support.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="n">BASE</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">base</span> <span class="o">=</span> <span class="n">base</span>
+
+<div class="viewcode-block" id="GenericStore.get_idstr"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.GenericStore.get_idstr">[docs]</a>    <span class="k">def</span> <span class="nf">get_idstr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typepfx</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Determine the set of IDs for given type and handle.</span>
+
+<span class="sd">        This is the default way of constructing an ID.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            typepfx (str): The collection type.</span>
+<span class="sd">            handle (str): The resource handle. </span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple comprising the handle and</span>
+<span class="sd">            a list of ID strings and collection type values.  </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">typepfx</span> <span class="o">==</span> <span class="s">&#39;url&#39;</span> <span class="ow">or</span> <span class="n">typepfx</span> <span class="o">==</span> <span class="s">&#39;orgstr&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;&#39;url&#39; handle not supported for this store&quot;</span><span class="p">)</span>
+        <span class="n">idstr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base</span> <span class="o">+</span> <span class="s">&quot;/&quot;</span> <span class="o">+</span> <span class="n">typepfx</span> <span class="o">+</span> <span class="s">&quot;/&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">handle</span><span class="p">))</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="p">[(</span><span class="n">typepfx</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)])</span>
+</div>
+<div class="viewcode-block" id="GenericStore.query"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.GenericStore.query">[docs]</a>    <span class="k">def</span> <span class="nf">query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Query the data store for the given ID string.</span>
+
+<span class="sd">        This is the common query method for all types of data stores.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            idstr (str): The ID string.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict object representing the result.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">print</span> <span class="s">&quot;Looking up &quot;</span> <span class="o">+</span> <span class="n">idstr</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span> <span class="o">!=</span> <span class="n">requests</span><span class="o">.</span><span class="n">codes</span><span class="o">.</span><span class="n">ok</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="k">print</span> <span class="s">&quot;No data returned for &quot;</span> <span class="o">+</span> <span class="n">idstr</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="c"># Remember the fact that we already looked up this data</span>
+            <span class="n">result</span><span class="p">[</span><span class="s">&quot;objID&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">idstr</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="n">xmltext</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">text</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">xmltodict</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">xmltext</span><span class="p">)</span>
+        <span class="c"># Use a custom identifier</span>
+        <span class="n">result</span><span class="p">[</span><span class="s">&quot;objID&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">idstr</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="GenericStore.fetch"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.GenericStore.fetch">[docs]</a>    <span class="k">def</span> <span class="nf">fetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetch data for the given ID string and collection type.</span>
+
+<span class="sd">        No caching is done in this routine. Just query and return.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ctype (str): The collection type.</span>
+<span class="sd">            idstr (str): The location reference for the whois object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict object representing the result.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="GenericStore.fetchAssociated"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.GenericStore.fetchAssociated">[docs]</a>    <span class="k">def</span> <span class="nf">fetchAssociated</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetch an object&#39;s associated data, given an ID string.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            obj (str): The object for which we are seeking associated data.</span>
+<span class="sd">            idstr (str): The ID string.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict object representing the result.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">get_type</span><span class="p">(),</span> <span class="n">idstr</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="HashStore"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.HashStore">[docs]</a><span class="k">class</span> <span class="nc">HashStore</span><span class="p">(</span><span class="n">GenericStore</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Implementation of a simple hash data store (non-persistent).&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="n">BASE</span><span class="p">):</span>
+        <span class="n">GenericStore</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HashStore.fetch"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.HashStore.fetch">[docs]</a>    <span class="k">def</span> <span class="nf">fetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetch data for the given ID string and collection type.</span>
+
+<span class="sd">        First look at the hash for any matching data. If found return</span>
+<span class="sd">        that data; if not fetch new data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Look for data in the hash</span>
+        <span class="k">if</span> <span class="n">idstr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">[</span><span class="n">ctype</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">[</span><span class="n">ctype</span><span class="p">][</span><span class="n">idstr</span><span class="p">]</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="c"># Store any new data in the hash</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">[</span><span class="n">ctype</span><span class="p">][</span><span class="n">idstr</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+</div></div>
+<div class="viewcode-block" id="DBStore"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.DBStore">[docs]</a><span class="k">class</span> <span class="nc">DBStore</span><span class="p">(</span><span class="n">GenericStore</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wrapper around a MongoDB data store.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dbhost</span><span class="p">,</span> <span class="n">dbport</span><span class="p">,</span> <span class="n">local</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Instantiate a MongoDB store object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dbhost (str): The Database hostname.</span>
+
+<span class="sd">            dbport (int): The Database port.</span>
+
+<span class="sd">            local (boolean): If true, only use pre-cached values. That</span>
+<span class="sd">                             is, issue no new queries.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">GenericStore</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="c"># Use default host and port for our DB</span>
+        <span class="n">client</span> <span class="o">=</span> <span class="n">MongoClient</span><span class="p">(</span><span class="n">dbhost</span><span class="p">,</span> <span class="n">dbport</span><span class="p">)</span> 
+        <span class="c"># DB handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">whois</span>
+        <span class="c"># DB collection</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cols</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">local</span> <span class="o">=</span> <span class="n">local</span>
+
+<div class="viewcode-block" id="DBStore.find_collection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.DBStore.find_collection">[docs]</a>    <span class="k">def</span> <span class="nf">find_collection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find the DB collection associated with the given object type.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ctype (str): The collection object type.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The mongoDB collection object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">ctype</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">cols</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cols</span><span class="p">[</span><span class="n">ctype</span><span class="p">]</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">Collection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="p">,</span> <span class="n">ctype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cols</span><span class="p">[</span><span class="n">ctype</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="DBStore.fetch"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.DBStore.fetch">[docs]</a>    <span class="k">def</span> <span class="nf">fetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetch data for the given ID string and collection type.</span>
+
+<span class="sd">        First look at the MongoDB store for any matching data. If found return</span>
+<span class="sd">        that data; if not, fetch new data but only if we are not</span>
+<span class="sd">        limiting lookups to already-cached values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Find an existing element with the given ID</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;Checking store for &quot;</span> <span class="o">+</span> <span class="n">idstr</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_collection</span><span class="p">(</span><span class="n">ctype</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="s">&quot;objID&quot;</span><span class="p">:</span><span class="n">idstr</span><span class="p">})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">local</span><span class="p">:</span>
+                <span class="c"># Don&#39;t fetch any data</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="n">result</span><span class="p">[</span><span class="s">&quot;objID&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">idstr</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Query and add data</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="n">oid</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+                <span class="c">#pprint(oid)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+
+<span class="c">#######################################################################</span>
+<span class="c"># The following classes implement the different Whois object containers</span>
+
+<span class="c"># Base class, should not be instantiated directly</span></div></div>
+<div class="viewcode-block" id="WhoisCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection">[docs]</a><span class="k">class</span> <span class="nc">WhoisCollection</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Base class for all Whois collection objects.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Base class constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip.</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        to be filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are </span>
+<span class="sd">                                        to be filtered.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">collections</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">links</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">resources</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;doublecircle&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;style&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;fillcolor&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;white&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;color&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;black&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;penwidth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span> <span class="o">=</span> <span class="n">origin_handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">origin</span> <span class="o">=</span> <span class="n">origin</span>
+
+        <span class="c"># If some value is given directly use it first</span>
+        <span class="c"># Else look at the parent object</span>
+        <span class="c"># Else set it to None</span>
+
+        <span class="c"># Set the store</span>
+        <span class="k">if</span> <span class="n">store</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="n">store</span>
+        <span class="k">elif</span> <span class="n">origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="n">origin</span><span class="o">.</span><span class="n">get_store</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="c"># Set the cache</span>
+        <span class="k">if</span> <span class="n">cache</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="n">cache</span>
+        <span class="k">elif</span> <span class="n">origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="n">origin</span><span class="o">.</span><span class="n">get_cache</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="c"># Set the threshold</span>
+        <span class="k">if</span> <span class="n">threshold</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="o">=</span> <span class="n">threshold</span>
+        <span class="k">elif</span> <span class="n">origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="o">=</span> <span class="n">origin</span><span class="o">.</span><span class="n">get_threshold</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="o">=</span> <span class="n">THRESHOLD</span>
+        <span class="c"># Set the whitelist</span>
+        <span class="k">if</span> <span class="n">whitelist</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span> <span class="o">=</span> <span class="n">whitelist</span>
+        <span class="k">elif</span> <span class="n">origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span> <span class="o">=</span> <span class="n">origin</span><span class="o">.</span><span class="n">get_whitelist</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># Set the blacklist</span>
+        <span class="k">if</span> <span class="n">blacklist</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span> <span class="o">=</span> <span class="n">blacklist</span>
+        <span class="k">elif</span> <span class="n">origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span> <span class="o">=</span> <span class="n">origin</span><span class="o">.</span><span class="n">get_blacklist</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># Set the initial tooltip</span>
+        <span class="k">if</span> <span class="n">tt</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">]</span> <span class="o">=</span> <span class="n">tt</span>
+
+<div class="viewcode-block" id="WhoisCollection.do_slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.do_slurp">[docs]</a>    <span class="k">def</span> <span class="nf">do_slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Entry point for looking up resource objects. &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="nb">unicode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">,</span><span class="s">&quot;utf-8&quot;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_data"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_data">[docs]</a>    <span class="k">def</span> <span class="nf">get_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get data corresponding to given ID string and collection type.</span>
+
+<span class="sd">        First check if the data exists in the cache. If it doesn&#39;t then</span>
+<span class="sd">        look for data in the data store.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ctype (string): Collection type.</span>
+<span class="sd">            idstr (string): ID string.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple of two values, where the first is a boolean value</span>
+<span class="sd">            that indicates whether the data was cached or not, and the</span>
+<span class="sd">            second is the result dict object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">idstr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+           <span class="k">return</span> <span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">[</span><span class="n">idstr</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">:</span>
+           <span class="k">return</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+           <span class="k">return</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="WhoisCollection.fetchObj"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.fetchObj">[docs]</a>    <span class="k">def</span> <span class="nf">fetchObj</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">typepfx</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get data corresponding to given handle and collection type.</span>
+
+<span class="sd">        This method first constructs the ID string(s) corresponding to</span>
+<span class="sd">        the handle and then calls get_data() to get the actual result</span>
+<span class="sd">        object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            typepfx (string): Collection type.</span>
+<span class="sd">            handle (string): Resource handle.</span>
+<span class="sd">            cache (boolean): If true, any data returned by get_data() is cached. </span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A list of object tuples. Each object tuple contains three</span>
+<span class="sd">            values: the first is whether the data was fresh (not cached)</span>
+<span class="sd">            or not; the second, is the ID string, and the third is the</span>
+<span class="sd">            result object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">objs</span>
+        <span class="p">(</span><span class="n">r_handle</span><span class="p">,</span> <span class="n">idstrlist</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_idstr</span><span class="p">(</span><span class="n">typepfx</span><span class="p">,</span> <span class="n">handle</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">r_handle</span> <span class="o">!=</span> <span class="n">handle</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">r_handle</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span> <span class="ow">in</span> <span class="n">idstrlist</span><span class="p">:</span>
+            <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">cache</span> <span class="ow">and</span> <span class="n">fresh</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">[</span><span class="n">idstr</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+            <span class="k">if</span> <span class="n">result</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">[</span><span class="n">typepfx</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">handle</span><span class="p">,</span> <span class="n">idstr</span><span class="p">))</span>
+                <span class="n">objs</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">objs</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.fetchAssociatedObj"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.fetchAssociatedObj">[docs]</a>    <span class="k">def</span> <span class="nf">fetchAssociatedObj</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get associated data for given idstr.</span>
+
+<span class="sd">        This method asks the data store for any associated objects. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            idstr (str): object ID str.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple with two values: the first is whether the data was</span>
+<span class="sd">            cached or not; and the second is the actual result object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">idstr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">[</span><span class="n">idstr</span><span class="p">])</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">fetchAssociated</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">[</span><span class="n">idstr</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="WhoisCollection.slurp_common"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.slurp_common">[docs]</a>    <span class="k">def</span> <span class="nf">slurp_common</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Common convenience function for data slurping.</span>
+
+<span class="sd">        If we&#39;re presented with a dict, look for the handle in all</span>
+<span class="sd">        list elements; if not, check in the provided list.</span>
+<span class="sd">        Do not process those objects whose child collections have number</span>
+<span class="sd">        of elements greater than a particular threshold.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            p (str): the link reference to process.</span>
+
+<span class="sd">            idstr (str): object ID str.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span> <span class="c"># We have a dict</span>
+            <span class="n">handle</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="s">&#39;@handle&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c"># We have a list</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">:</span>
+                <span class="c"># Don&#39;t follow a very long list</span>
+                <span class="c"># Note that we update the parent object</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">origin</span><span class="o">.</span><span class="n">set_limit_exceeded</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">p</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">for</span> <span class="n">pi</span> <span class="ow">in</span> <span class="n">p</span><span class="p">:</span>
+                <span class="n">handle</span> <span class="o">=</span> <span class="n">pi</span><span class="p">[</span><span class="s">&#39;@handle&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.add_collection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.add_collection">[docs]</a>    <span class="k">def</span> <span class="nf">add_collection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">col</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a new associated ollection to the current object.</span>
+
+<span class="sd">        Collections are indexed by the origin handle. There can be</span>
+<span class="sd">        multiple collections per origin handle. As part of adding the</span>
+<span class="sd">        collection also update the cache from the to-be-added collection</span>
+<span class="sd">        to the main (parent) collection holder.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            col (WhoisCollection): the collection object to be added.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">col</span><span class="o">.</span><span class="n">get_parent_handle</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">h</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">col</span><span class="p">)</span>
+        <span class="c"># Update our cache with the given object&#39;s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">get_cache</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_collections"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_collections">[docs]</a>    <span class="k">def</span> <span class="nf">get_collections</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get list of collections associated with the given object. </span>
+
+<span class="sd">        Return all objects below and including the current one</span>
+<span class="sd">        grouped by their handle.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            recurse (boolean): return collection objects by traversing</span>
+<span class="sd">                               all collections that are linked through</span>
+<span class="sd">                               previous calls to add_collection().</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict of lists of WhoisCollection objects. The keys </span>
+<span class="sd">            of the dict are the origin handles that were used in the</span>
+<span class="sd">            construction of the associated WhoisCollection objects.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recurse</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="c"># Note that k is the parent handle</span>
+                <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="n">n</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">get_collections</span><span class="p">()</span>
+                    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">n</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ret</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">ret</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.add_link"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.add_link">[docs]</a>    <span class="k">def</span> <span class="nf">add_link</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a link between the current object and the given handle.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): the handle of the collection to link with.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span> <span class="o">!=</span> <span class="n">handle</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_links"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_links">[docs]</a>    <span class="k">def</span> <span class="nf">get_links</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the list of links associated with the given object. </span>
+
+<span class="sd">        For each object below and including the current node return</span>
+<span class="sd">        the list of connected nodes.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            recurse (boolean): return links by traversing all</span>
+<span class="sd">                               collections that are linked through</span>
+<span class="sd">                               previous calls to add_collection().</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict of lists of handles. The keys of the dict are the</span>
+<span class="sd">            origin handles that were used in the construction of the</span>
+<span class="sd">            associated WhoisCollection objects.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recurse</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="n">n</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">get_links</span><span class="p">()</span>
+                    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">n</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ret</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">ret</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_resources"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_resources">[docs]</a>    <span class="k">def</span> <span class="nf">get_resources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the list of resources associated with the given object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            recurse (boolean): return resources by traversing all</span>
+<span class="sd">                               collections that are linked through</span>
+<span class="sd">                               previous calls to add_collection().</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict of lists of resources. The keys are the</span>
+<span class="sd">            resource types.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recurse</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="n">n</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">get_resources</span><span class="p">()</span>
+                    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">n</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ret</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">])))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">])))</span>
+        <span class="k">return</span> <span class="n">ret</span>
+
+</div>
+<div class="viewcode-block" id="WhoisCollection.add_tooltip"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.add_tooltip">[docs]</a>    <span class="k">def</span> <span class="nf">add_tooltip</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a new tooltip to the object.</span>
+
+<span class="sd">        Append a new tooltip to the list indexed by the given handle. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): the handle to associate the tool-tip with.</span>
+<span class="sd">            msg (str): the tool-tip message.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">handle</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">msg</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_tooltip"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_tooltip">[docs]</a>    <span class="k">def</span> <span class="nf">get_tooltip</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the list of tooltips associated with the given object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            recurse (boolean): return tooltips by traversing all</span>
+<span class="sd">                               collections that are linked through</span>
+<span class="sd">                               previous calls to add_collection().</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict of lists of tooltips. The keys are the</span>
+<span class="sd">            origin handles.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recurse</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="n">n</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">get_tooltip</span><span class="p">()</span>
+                    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">n</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">ret</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">ret</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">ret</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.set_limit_exceeded"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.set_limit_exceeded">[docs]</a>    <span class="k">def</span> <span class="nf">set_limit_exceeded</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">lim</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the object state to indicate too many dependencies.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): the handle against which the limit exceeded</span>
+<span class="sd">                          state is to be associated. </span>
+
+<span class="sd">            idstr (str): the ID string that triggered the limit exceeded event.</span>
+
+<span class="sd">            lim (int): the number of dependencies that were detected.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;Threshold exceeded for &quot;</span> <span class="o">+</span> <span class="n">idstr</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">lim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_tooltip</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_filtered"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_filtered">[docs]</a>    <span class="k">def</span> <span class="nf">get_filtered</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recurse</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the list of handles that were filtered</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            recurse (boolean): traverse all collections that are linked</span>
+<span class="sd">                               through previous calls to</span>
+<span class="sd">                               add_collection().</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A lists of handles that were filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filtered</span>
+        <span class="k">if</span> <span class="n">recurse</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                    <span class="n">n</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">get_filtered</span><span class="p">()</span>
+                    <span class="n">ret</span> <span class="o">=</span> <span class="n">ret</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">n</span><span class="p">)</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">ret</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">ret</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_parent_handle"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_parent_handle">[docs]</a>    <span class="k">def</span> <span class="nf">get_parent_handle</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the origin (parent) handle for the object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The string value for the origin handle. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_handle</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_parent"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_parent">[docs]</a>    <span class="k">def</span> <span class="nf">get_parent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the parent object for the object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The WhoisContainer object corresponding to the parent.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_cache"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_cache">[docs]</a>    <span class="k">def</span> <span class="nf">get_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the cache structure for the collection object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict value that holds the cache information for the</span>
+<span class="sd">            WhoisCollection object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_threshold"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_threshold">[docs]</a>    <span class="k">def</span> <span class="nf">get_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the threshold for the collection object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An integer value that holds the threshold value.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_whitelist"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_whitelist">[docs]</a>    <span class="k">def</span> <span class="nf">get_whitelist</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the whitelisted handles.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of object handle strings that are whitelisted from</span>
+<span class="sd">            fitering. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_blacklist"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_blacklist">[docs]</a>    <span class="k">def</span> <span class="nf">get_blacklist</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the blacklisted handles.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of object handle strings that are blacklisted. </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_type"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_type">[docs]</a>    <span class="k">def</span> <span class="nf">get_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the collection type for the given collection object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A str value corresponding to the type of the whois</span>
+<span class="sd">            collection object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;ctype&#39;</span><span class="p">]</span> 
+</div>
+<div class="viewcode-block" id="WhoisCollection.fill_draw_attribs"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.fill_draw_attribs">[docs]</a>    <span class="k">def</span> <span class="nf">fill_draw_attribs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node_h</span><span class="p">,</span> <span class="n">a</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Get different attributes of this collection.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that contains the following attributes for</span>
+<span class="sd">            the collection object:</span>
+
+<span class="sd">            shape: the shape to use in any graphical representation.</span>
+<span class="sd">            style: the figure style, such as its filled status.</span>
+<span class="sd">            fillcolor: the fillcolor to use.</span>
+<span class="sd">            color: the color to use.</span>
+<span class="sd">            penwidth: the penwidth to use.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">a</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> 
+        <span class="k">if</span> <span class="n">node_h</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">a</span><span class="p">[</span><span class="s">&#39;tooltip&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;&amp;#10;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="p">[</span><span class="n">node_h</span><span class="p">]))</span>
+        <span class="n">a</span><span class="p">[</span><span class="s">&#39;style&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;style&#39;</span><span class="p">]</span> 
+        <span class="n">a</span><span class="p">[</span><span class="s">&#39;fillcolor&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;fillcolor&#39;</span><span class="p">]</span> 
+        <span class="n">a</span><span class="p">[</span><span class="s">&#39;penwidth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;penwidth&#39;</span><span class="p">]</span>
+        <span class="n">a</span><span class="p">[</span><span class="s">&#39;color&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;color&#39;</span><span class="p">]</span>
+        <span class="c"># If this is the starting node use a double edge </span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_parent</span><span class="p">():</span>
+            <span class="n">a</span><span class="p">[</span><span class="s">&#39;peripheries&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">2</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.get_store"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.get_store">[docs]</a>    <span class="k">def</span> <span class="nf">get_store</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the store associated with this object.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The GenericStore object that is associated with the given</span>
+<span class="sd">            collection object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span>
+</div>
+<div class="viewcode-block" id="WhoisCollection.subsume"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.WhoisCollection.subsume">[docs]</a>    <span class="k">def</span> <span class="nf">subsume</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">col</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Subsume the new collection object.</span>
+<span class="sd">   </span>
+<span class="sd">        Merge various pertinent data associated with the new collection</span>
+<span class="sd">        object into the current collection object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            col (WhoisCollection): the collection object that we want to subsume.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="n">col</span><span class="o">.</span><span class="n">get_cache</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">collections</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">get_collections</span><span class="p">(</span><span class="bp">False</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">get_links</span><span class="p">(</span><span class="bp">False</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tooltip</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">get_tooltip</span><span class="p">(</span><span class="bp">False</span><span class="p">))</span>
+        <span class="c"># Special logic for resources, since the dict keys can overlap</span>
+        <span class="n">curres</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resources</span>
+        <span class="n">newres</span> <span class="o">=</span> <span class="n">col</span><span class="o">.</span><span class="n">get_resources</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">newres</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">curres</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">curres</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">newres</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">curres</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">resources</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">newres</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+
+</div></div>
+<div class="viewcode-block" id="POCCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.POCCollection">[docs]</a><span class="k">class</span> <span class="nc">POCCollection</span><span class="p">(</span><span class="n">WhoisCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Point of Contact Resource Class.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Point of Contact container class constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">WhoisCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;note&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;ctype&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;poc&#39;</span>
+        <span class="c">#self.attrib[&#39;color&#39;] = &#39;maroon&#39; </span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;penwidth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">3</span>
+
+
+<div class="viewcode-block" id="POCCollection.slurp_set"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.POCCollection.slurp_set">[docs]</a>    <span class="k">def</span> <span class="nf">slurp_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find the POC handle and slurp data.</span>
+<span class="sd">    </span>
+<span class="sd">        POCs may be found in XML elements named pocLinkRef or pocRef.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">idstr</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="s">&quot;/pocs&quot;</span>
+        <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchAssociatedObj</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;pocs&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c"># Query and store each poc</span>
+            <span class="k">if</span> <span class="s">&#39;pocLinkRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;pocs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;pocs&#39;</span><span class="p">][</span><span class="s">&#39;pocLinkRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s">&#39;pocRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;pocs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;pocs&#39;</span><span class="p">][</span><span class="s">&#39;pocRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="POCCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.POCCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this POC container.</span>
+<span class="sd">    </span>
+<span class="sd">        POC collections may be comprised of Org, ASN and Net collections.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): The origin handle for the slurp operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_link</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;poc&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="c"># Make all relevant sub-queries</span>
+            <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span><span class="p">:</span>
+                <span class="n">org</span> <span class="o">=</span> <span class="n">OrgCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">org</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">org</span><span class="p">)</span>
+                <span class="n">asn</span> <span class="o">=</span> <span class="n">ASNCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">asn</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+                <span class="n">net</span> <span class="o">=</span> <span class="n">NetCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">net</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">net</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="URLCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.URLCollection">[docs]</a><span class="k">class</span> <span class="nc">URLCollection</span><span class="p">(</span><span class="n">POCCollection</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;URL container class constructor (ephemeral).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">POCCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+
+<div class="viewcode-block" id="URLCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.URLCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this URL.</span>
+<span class="sd">    </span>
+<span class="sd">        Look for the associated POCCollection object and perform the</span>
+<span class="sd">        slurp operation over that object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): The origin handle for the slurp operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;url&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;poc&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">handle_c</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;poc&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">fresh</span><span class="p">:</span>
+                    <span class="n">poc</span> <span class="o">=</span> <span class="n">POCCollection</span><span class="p">(</span><span class="n">handle_c</span><span class="p">,</span>
+                            <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_store</span><span class="p">(),</span> <span class="n">cache</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span>
+                            <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                            <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span>
+                            <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+                    <span class="n">poc</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">subsume</span><span class="p">(</span><span class="n">poc</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="OrgCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.OrgCollection">[docs]</a><span class="k">class</span> <span class="nc">OrgCollection</span><span class="p">(</span><span class="n">WhoisCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Organization Resouce Class&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Org container class constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">WhoisCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;diamond&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;ctype&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;org&#39;</span>
+        <span class="c">#self.attrib[&#39;color&#39;] = &#39;blue&#39; </span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;penwidth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">3</span>
+
+<div class="viewcode-block" id="OrgCollection.slurp_set"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.OrgCollection.slurp_set">[docs]</a>    <span class="k">def</span> <span class="nf">slurp_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find the Org handle and slurp data.</span>
+<span class="sd">    </span>
+<span class="sd">        Orgs may be found in XML elements named orgPocLinkRef or orgRef.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">idstr</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="s">&quot;/orgs&quot;</span>
+        <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchAssociatedObj</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;orgs&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c"># Query and store each poc</span>
+            <span class="k">if</span> <span class="s">&#39;orgPocLinkRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;orgs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;orgs&#39;</span><span class="p">][</span><span class="s">&#39;orgPocLinkRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s">&#39;orgRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;orgs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;orgs&#39;</span><span class="p">][</span><span class="s">&#39;orgRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="OrgCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.OrgCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this Org container.</span>
+<span class="sd">    </span>
+<span class="sd">        Org collections may be comprised of POC, ASN and Net</span>
+<span class="sd">        collections.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_link</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;org&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="c"># Make all relevant sub-queries</span>
+            <span class="c"># XXX Not fetching customer (for org) since there is only cust id</span>
+            <span class="c"># XXX for a net block</span>
+            <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span><span class="p">:</span>
+                <span class="n">poc</span> <span class="o">=</span> <span class="n">POCCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">poc</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">poc</span><span class="p">)</span>
+                <span class="n">asn</span> <span class="o">=</span> <span class="n">ASNCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">asn</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+                <span class="n">net</span> <span class="o">=</span> <span class="n">NetCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">net</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">net</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="OrgstrCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.OrgstrCollection">[docs]</a><span class="k">class</span> <span class="nc">OrgstrCollection</span><span class="p">(</span><span class="n">OrgCollection</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Orgstr container class constructor (ephemeral).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">OrgCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+
+<div class="viewcode-block" id="OrgstrCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.OrgstrCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this OrgName </span>
+<span class="sd">    </span>
+<span class="sd">        Look for the associated OrgCollection object and perform the</span>
+<span class="sd">        slurp operation over that object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): The origin handle for the slurp operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;orgstr&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;org&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">handle_c</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;org&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">fresh</span><span class="p">:</span>
+                    <span class="n">org</span> <span class="o">=</span> <span class="n">OrgCollection</span><span class="p">(</span><span class="n">handle_c</span><span class="p">,</span>
+                            <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_store</span><span class="p">(),</span> <span class="n">cache</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span>
+                            <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                            <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span>
+                            <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+                    <span class="n">org</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">subsume</span><span class="p">(</span><span class="n">org</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="NetCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.NetCollection">[docs]</a><span class="k">class</span> <span class="nc">NetCollection</span><span class="p">(</span><span class="n">WhoisCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Net Resource Class.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Net container class constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">WhoisCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;box&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;ctype&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;net&#39;</span>
+
+<div class="viewcode-block" id="NetCollection.slurp_set"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.NetCollection.slurp_set">[docs]</a>    <span class="k">def</span> <span class="nf">slurp_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find the Net handle and slurp data.</span>
+<span class="sd">    </span>
+<span class="sd">        Net resources may be found in XML elements named netPocLinkRef</span>
+<span class="sd">        or netRef.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">idstr</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="s">&quot;/nets&quot;</span>
+        <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchAssociatedObj</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;nets&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c"># Query and store each poc</span>
+            <span class="k">if</span> <span class="s">&#39;netPocLinkRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;nets&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;nets&#39;</span><span class="p">][</span><span class="s">&#39;netPocLinkRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s">&#39;netRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;nets&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;nets&#39;</span><span class="p">][</span><span class="s">&#39;netRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="NetCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.NetCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this Net container.</span>
+<span class="sd">    </span>
+<span class="sd">        Net collections may be comprised of POC or Org collections.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_link</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="c"># Make all relevant sub-queries</span>
+            <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span><span class="p">:</span>
+                <span class="n">poc</span> <span class="o">=</span> <span class="n">POCCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">poc</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">poc</span><span class="p">)</span>
+                <span class="n">orgHandle</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">if</span> <span class="s">&#39;orgRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">orgHandle</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;orgRef&#39;</span><span class="p">][</span><span class="s">&#39;@handle&#39;</span><span class="p">]</span>
+                <span class="k">elif</span> <span class="s">&#39;orgHandle&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">orgHandle</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;orgHandle&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">orgHandle</span><span class="p">:</span>
+                    <span class="n">org</span> <span class="o">=</span> <span class="n">OrgCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                    <span class="n">org</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">orgHandle</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">org</span><span class="p">)</span>
+                <span class="c"># XXX Not following RDNS links</span>
+                <span class="c"># XXX Not following parent/ and children/ links</span>
+</div></div>
+<div class="viewcode-block" id="CIDRCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.CIDRCollection">[docs]</a><span class="k">class</span> <span class="nc">CIDRCollection</span><span class="p">(</span><span class="n">NetCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;IP container class (ephemeral).&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CIDR container class constructor (ephemeral).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">NetCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CIDRCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.CIDRCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this CIDR block.</span>
+<span class="sd">    </span>
+<span class="sd">        Look for the associated NetCollection object and perform the</span>
+<span class="sd">        slurp operation over that object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): The origin handle for the slurp operation</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;cidr&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;net&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">handle_c</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">fresh</span><span class="p">:</span>
+                    <span class="n">net</span> <span class="o">=</span> <span class="n">NetCollection</span><span class="p">(</span><span class="n">handle_c</span><span class="p">,</span>
+                            <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_store</span><span class="p">(),</span> <span class="n">cache</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span>
+                            <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                            <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span>
+                            <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+                    <span class="n">net</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">subsume</span><span class="p">(</span><span class="n">net</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="IPCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.IPCollection">[docs]</a><span class="k">class</span> <span class="nc">IPCollection</span><span class="p">(</span><span class="n">NetCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;IP container class (ephemeral).&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;IP container class constructor (ephemeral).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">NetCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+
+<div class="viewcode-block" id="IPCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.IPCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this IP address.</span>
+<span class="sd">    </span>
+<span class="sd">        Look for the associated NetCollection object and perform the</span>
+<span class="sd">        slurp operation over that object. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            handle (str): The origin handle for the slurp operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;ip&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;net&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">handle_c</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;handle&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">links</span><span class="p">[</span><span class="n">handle</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">fresh</span><span class="p">:</span>
+                    <span class="n">net</span> <span class="o">=</span> <span class="n">NetCollection</span><span class="p">(</span><span class="n">handle_c</span><span class="p">,</span>
+                            <span class="n">store</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_store</span><span class="p">(),</span> <span class="n">cache</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span>
+                            <span class="n">threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">,</span>
+                            <span class="n">whitelist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="p">,</span>
+                            <span class="n">blacklist</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">blacklist</span><span class="p">)</span>
+                    <span class="n">net</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">handle_c</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">subsume</span><span class="p">(</span><span class="n">net</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ASNCollection"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.ASNCollection">[docs]</a><span class="k">class</span> <span class="nc">ASNCollection</span><span class="p">(</span><span class="n">WhoisCollection</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;ASN Resource Class&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tt</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">whitelist</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">blacklist</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;ASN container class constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            origin_handle (str): The handle that identifies the container.</span>
+<span class="sd">            origin (WhoisCollection): The parent container object.</span>
+<span class="sd">            store (GenericStore): The store associated with this collection object.</span>
+<span class="sd">            cache (dict): Any pre-cached values.</span>
+<span class="sd">            tt (str): An initial tooltip (message).</span>
+<span class="sd">            threshold (int): If the number of node dependencies exceed</span>
+<span class="sd">                             this limit the dependencies are not</span>
+<span class="sd">                             followed.</span>
+<span class="sd">            whitelist (list of string): Object handles that are not</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">            blacklist (list of string): Object handles that are</span>
+<span class="sd">                                        filtered.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">WhoisCollection</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin_handle</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">store</span><span class="p">,</span>
+                <span class="n">cache</span><span class="p">,</span> <span class="n">tt</span><span class="p">,</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">whitelist</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;shape&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;ellipse&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;ctype&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;asn&#39;</span>
+
+<div class="viewcode-block" id="ASNCollection.slurp_set"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.ASNCollection.slurp_set">[docs]</a>    <span class="k">def</span> <span class="nf">slurp_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find the ASN handle and slurp data.</span>
+<span class="sd">    </span>
+<span class="sd">        ASN resources may be found in XML elements named asnPocLinkRef</span>
+<span class="sd">        or asnRef.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">idstr</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="s">&quot;/asns&quot;</span>
+        <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchAssociatedObj</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;asns&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c"># Query and store each poc</span>
+            <span class="k">if</span> <span class="s">&#39;asnPocLinkRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asns&#39;</span><span class="p">][</span><span class="s">&#39;asnPocLinkRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s">&#39;asnRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asns&#39;</span><span class="p">][</span><span class="s">&#39;asnRef&#39;</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">slurp_common</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">idstr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ASNCollection.slurp"><a class="viewcode-back" href="../../map_resources.html#map_resources.fetch_whois.ASNCollection.slurp">[docs]</a>    <span class="k">def</span> <span class="nf">slurp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Look for all objects that can be reached from this ASN container.</span>
+<span class="sd">    </span>
+<span class="sd">        ASN collections may be comprised of POC and Org collections.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            base (str): The base URL for lookups.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_link</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetchObj</span><span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="n">handle</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">idstr</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+            <span class="c"># Make all relevant sub-queries</span>
+            <span class="k">if</span> <span class="n">fresh</span> <span class="ow">and</span> <span class="n">result</span> <span class="ow">and</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">poc</span> <span class="o">=</span> <span class="n">POCCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">poc</span><span class="o">.</span><span class="n">slurp_set</span><span class="p">(</span><span class="n">idstr</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">poc</span><span class="p">)</span>
+                <span class="n">orgHandle</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">if</span> <span class="s">&#39;orgRef&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">orgHandle</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;orgRef&#39;</span><span class="p">][</span><span class="s">&#39;@handle&#39;</span><span class="p">]</span>
+                <span class="k">elif</span> <span class="s">&#39;orgHandle&#39;</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">orgHandle</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;orgHandle&#39;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">orgHandle</span><span class="p">:</span>
+                    <span class="n">org</span> <span class="o">=</span> <span class="n">OrgCollection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                    <span class="n">org</span><span class="o">.</span><span class="n">slurp</span><span class="p">(</span><span class="n">orgHandle</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">add_collection</span><span class="p">(</span><span class="n">org</span><span class="p">)</span>
+</pre></div></div></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

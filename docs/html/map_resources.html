@@ -1,0 +1,1852 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>map_resources package &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="index.html" />
+    <link rel="prev" title="MapResources Examples" href="examples.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="examples.html" title="MapResources Examples"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">map_resources  documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="map-resources-package">
+<h1>map_resources package<a class="headerlink" href="#map-resources-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-map_resources">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-map_resources" title="Permalink to this headline">¶</a></h2>
+<p>This package enables one to query and inspect ARIN whois objects.</p>
+<p>This package exports the following classes:</p>
+<dl class="docutils">
+<dt>Data Stores:</dt>
+<dd><ul class="first last">
+<li><dl class="first docutils">
+<dt>GenericStore: No caching data store (base class)</dt>
+<dd><ul class="first last simple">
+<li>HashStore: Data store with hash backend</li>
+<li>DBStore: Data store with MongoDB as the backend</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Whois Collection Objects:</dt>
+<dd><ul class="first last">
+<li><dl class="first docutils">
+<dt>WhoisCollection: Base class</dt>
+<dd><ul class="first last">
+<li><dl class="first docutils">
+<dt>POCCollection: Point of Contact Collection</dt>
+<dd><ul class="first last simple">
+<li>URLCollection: URL Collection (Ephemeral Class)</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p class="first">OrgCollection: Organization Collection</p>
+</li>
+<li><dl class="first docutils">
+<dt>NetCollection: Network resource collection</dt>
+<dd><ul class="first last simple">
+<li>IPCollection: IP address collection (Ephemeral Class)</li>
+<li>CIDRCollection: CIDR block Collection (Ephemeral Class)</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p class="first">ASNCollection: Autonomous System Number Collection</p>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Analysis and reporting:</dt>
+<dd><ul class="first last simple">
+<li>WhoisAnalyzer: Cluster analyzer</li>
+<li>ResourceReporter: formats cluster information for reporting</li>
+</ul>
+</dd>
+<dt>CLI Argument Parser:</dt>
+<dd><ul class="first last simple">
+<li>WhoisOptParser: Parse base command line options</li>
+<li>AnalyzeOptExtension: Parse analyzer specific command line options</li>
+</ul>
+</dd>
+<dt>RouteViews Interface:</dt>
+<dd><ul class="first last simple">
+<li>RVFetcher: Fetch route view data from local DB</li>
+<li>RVComparator: Compare whois and route views data</li>
+<li>RVComparatorRes: Container for RVComparator results</li>
+</ul>
+</dd>
+</dl>
+</div>
+<div class="section" id="module-map_resources.map_whois">
+<span id="map-resources-map-whois"></span><h2>map_resources.map_whois<a class="headerlink" href="#module-map_resources.map_whois" title="Permalink to this headline">¶</a></h2>
+<p>map_whois.py - Map whois resources</p>
+<p>This script enables one to discover network resources in ARIN&#8217;s whois
+database that are could belong to an organization. A starting point in
+the form of a known POC handle, organization handle, net handle or asn
+number is assumed; the tool thereafter queries ARIN&#8217;s RESTful API in
+order to detect other resources that the organization may hold.</p>
+<dl class="docutils">
+<dt>usage: map_whois [-h] [-v] [-a ASN] [-p POC] [-o ORG] [-n NET] [-c CIDR]</dt>
+<dd>[-i IP] [-u URL] [-s ORGSTR] [-L RESOURCELIST] [-j JSONFILE]
+[-J CJSONFILE] [-e] [-X | -H | -D DBSTORE] [-t THRESHOLD]
+[-w WHITELIST] [-b BLACKLIST] [-S] [-g GRAPHFILE]
+[-r REPORTFILE] [-G] [-P] [-R RVDB]</dd>
+<dt>optional arguments:</dt>
+<dd><table class="first last docutils option-list" frame="void" rules="none">
+<col class="option" />
+<col class="description" />
+<tbody valign="top">
+<tr><td class="option-group">
+<kbd><span class="option">-h</span>, <span class="option">--help</span></kbd></td>
+<td>show this help message and exit</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-v</span>, <span class="option">--verbose</span></kbd></td>
+<td>increase output verbosity</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-a <var>ASN</var></span>, <span class="option">--asn <var>ASN</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given ASN handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-p <var>POC</var></span>, <span class="option">--poc <var>POC</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given POC handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-o <var>ORG</var></span>, <span class="option">--org <var>ORG</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given Org handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-n <var>NET</var></span>, <span class="option">--net <var>NET</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given Net handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-c <var>CIDR</var></span>, <span class="option">--cidr <var>CIDR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given CIDR block</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-i <var>IP</var></span>, <span class="option">--ip <var>IP</var></span></kbd></td>
+<td>Start from the given IP address</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-u <var>URL</var></span>, <span class="option">--url <var>URL</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given domain</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-s <var>ORGSTR</var></span>, <span class="option">--orgstr <var>ORGSTR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given org string</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-L <var>RESOURCELIST</var></span>, <span class="option">--resourcelist <var>RESOURCELIST</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Extract resource handles from the given file. Each
+line of the file should be formatted as
+&lt;type&gt;:&lt;value&gt;, where the different supported types
+are &#8216;asn&#8217;, &#8216;poc&#8217;, &#8216;org&#8217;, &#8216;net&#8217;, &#8216;cidr&#8217;, &#8216;ip&#8217; and
+&#8216;url&#8217;. Args: rsrcfile(file handle): Return Values: A
+dict object containing a mapping between the resource
+handle and the resource type.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-j <var>JSONFILE</var></span>, <span class="option">--jsonfile <var>JSONFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output raw resource information in json format</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-J <var>CJSONFILE</var></span>, <span class="option">--cjsonfile <var>CJSONFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output cluster information in json format</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-e</span>, <span class="option">--extended</span></kbd></td>
+<td>Display detailed information</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-X</span>, <span class="option">--nostore</span></kbd></td>
+<td>Do not use any data store</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-H</span>, <span class="option">--hashstore</span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Use a hash store</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-D <var>DBSTORE</var></span>, <span class="option">--dbstore <var>DBSTORE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Use a DB store</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-t <var>THRESHOLD</var></span>, <span class="option">--threshold <var>THRESHOLD</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Maximum number of dependencies to follow</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-w <var>WHITELIST</var></span>, <span class="option">--whitelist <var>WHITELIST</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Whitelisted handles</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-b <var>BLACKLIST</var></span>, <span class="option">--blacklist <var>BLACKLIST</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Blacklisted handles</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-S</span>, <span class="option">--showgraph</span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Dsplay the graph</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-g <var>GRAPHFILE</var></span>, <span class="option">--graphfile <var>GRAPHFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output graph image</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-r <var>REPORTFILE</var></span>, <span class="option">--reportfile <var>REPORTFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output report</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-G</span>, <span class="option">--clustergraph</span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Include graph image in report</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-P</span>, <span class="option">--clusterplot</span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Include resource plot in report</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-R <var>RVDB</var></span>, <span class="option">--rvdb <var>RVDB</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Check against given Route Views Database file</td></tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<dl class="function">
+<dt id="map_resources.map_whois.main">
+<code class="descclassname">map_resources.map_whois.</code><code class="descname">main</code><span class="sig-paren">(</span><em>argv</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/map_whois.html#main"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.map_whois.main" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-map_resources.query_resources">
+<span id="map-resources-query-resources"></span><h2>map_resources.query_resources<a class="headerlink" href="#module-map_resources.query_resources" title="Permalink to this headline">¶</a></h2>
+<p>query_resource.py - Query whois resources</p>
+<p>This script enables one to query the ARIN whois database for data
+corresponding to given object handles.</p>
+<dl class="docutils">
+<dt>usage: query_resources [-h] [-v] [-a ASN] [-p POC] [-o ORG] [-n NET] [-c CIDR]</dt>
+<dd>[-i IP] [-u URL] [-s ORGSTR] [-L RESOURCELIST]
+[-j JSONFILE] [-J CJSONFILE] [-e]
+[-X | -H | -D DBSTORE]</dd>
+<dt>optional arguments:</dt>
+<dd><table class="first last docutils option-list" frame="void" rules="none">
+<col class="option" />
+<col class="description" />
+<tbody valign="top">
+<tr><td class="option-group">
+<kbd><span class="option">-h</span>, <span class="option">--help</span></kbd></td>
+<td>show this help message and exit</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-v</span>, <span class="option">--verbose</span></kbd></td>
+<td>increase output verbosity</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-a <var>ASN</var></span>, <span class="option">--asn <var>ASN</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given ASN handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-p <var>POC</var></span>, <span class="option">--poc <var>POC</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given POC handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-o <var>ORG</var></span>, <span class="option">--org <var>ORG</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given Org handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-n <var>NET</var></span>, <span class="option">--net <var>NET</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given Net handle</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-c <var>CIDR</var></span>, <span class="option">--cidr <var>CIDR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given CIDR block</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-i <var>IP</var></span>, <span class="option">--ip <var>IP</var></span></kbd></td>
+<td>Start from the given IP address</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-u <var>URL</var></span>, <span class="option">--url <var>URL</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given domain</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-s <var>ORGSTR</var></span>, <span class="option">--orgstr <var>ORGSTR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Start from the given org string</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-L <var>RESOURCELIST</var></span>, <span class="option">--resourcelist <var>RESOURCELIST</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Extract resource handles from the given file. Each
+line of the file should be formatted as
+&lt;type&gt;:&lt;value&gt;, where the different supported types
+are &#8216;asn&#8217;, &#8216;poc&#8217;, &#8216;org&#8217;, &#8216;net&#8217;, &#8216;cidr&#8217;, &#8216;ip&#8217; and
+&#8216;url&#8217;. Args: rsrcfile(file handle): Return Values: A
+dict object containing a mapping between the resource
+handle and the resource type.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-j <var>JSONFILE</var></span>, <span class="option">--jsonfile <var>JSONFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output raw resource information in json format</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-J <var>CJSONFILE</var></span>, <span class="option">--cjsonfile <var>CJSONFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Output cluster information in json format</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-e</span>, <span class="option">--extended</span></kbd></td>
+<td>Display detailed information</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-X</span>, <span class="option">--nostore</span></kbd></td>
+<td>Do not use any data store</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-H</span>, <span class="option">--hashstore</span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Use a hash store</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">-D <var>DBSTORE</var></span>, <span class="option">--dbstore <var>DBSTORE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Use a DB store</td></tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<dl class="function">
+<dt id="map_resources.query_resources.main">
+<code class="descclassname">map_resources.query_resources.</code><code class="descname">main</code><span class="sig-paren">(</span><em>argv</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/query_resources.html#main"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.query_resources.main" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-map_resources.analyze">
+<span id="map-resources-analyze-module"></span><h2>map_resources.analyze module<a class="headerlink" href="#module-map_resources.analyze" title="Permalink to this headline">¶</a></h2>
+<p>Analyze and report on resource clusters.</p>
+<p>This module analyzes the data that was fetched through the ARIN RESTful
+API and generates reportable output. It also implements the helper class
+that is used for processing Command line input to any driver scripts.</p>
+<dl class="docutils">
+<dt>Attributes:</dt>
+<dd>verbose (boolean): Turns on verbosity of log messages.</dd>
+</dl>
+<dl class="class">
+<dt id="map_resources.analyze.AnalyzeOptExtension">
+<em class="property">class </em><code class="descclassname">map_resources.analyze.</code><code class="descname">AnalyzeOptExtension</code><span class="sig-paren">(</span><em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#AnalyzeOptExtension"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.AnalyzeOptExtension" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class to parse options related to any analysis driver script.</p>
+<dl class="method">
+<dt id="map_resources.analyze.AnalyzeOptExtension.get_help">
+<code class="descname">get_help</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#AnalyzeOptExtension.get_help"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.AnalyzeOptExtension.get_help" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the formatted help text.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>Str value containing formatted help text.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.AnalyzeOptExtension.parse">
+<code class="descname">parse</code><span class="sig-paren">(</span><em>argv</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#AnalyzeOptExtension.parse"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.AnalyzeOptExtension.parse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parse the list of options.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>A list of arguments provided in argv.</dd>
+<dt>Returns:</dt>
+<dd>A dict structure that contains different analyzer options.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.analyze.ResourceReporter">
+<em class="property">class </em><code class="descclassname">map_resources.analyze.</code><code class="descname">ResourceReporter</code><span class="sig-paren">(</span><em>analyzer</em>, <em>resources=None</em>, <em>links=None</em>, <em>filtered=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class formats cluster information for reporting.</p>
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.display_graph">
+<code class="descname">display_graph</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.display_graph"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.display_graph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Display the resource graph using matplotlib.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.get_agraph">
+<code class="descname">get_agraph</code><span class="sig-paren">(</span><em>G</em>, <em>o</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.get_agraph"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.get_agraph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate a Graphviz Agraph from graph information.</p>
+<p>Produce the Agraph from the networkx object. Also set node
+attributes from the values stored in the different
+WhoisCollection objects.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>G(Graph): A networkx graph object.
+o(dict): A dict of object collections indexed by the origin handle.</dd>
+<dt>Returns:</dt>
+<dd>A graphviz Agraph.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.get_clusterinfo">
+<code class="descname">get_clusterinfo</code><span class="sig-paren">(</span><em>extended=False</em>, <em>rvf=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.get_clusterinfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.get_clusterinfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return cluster info.</p>
+<p>Build a list of cluster information along with relevant network
+information for reporting.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><p class="first">extended(boolean): If True produce additional details.</p>
+<dl class="last docutils">
+<dt>rvf(RouteViewsFetcher): If not None, fetch information from</dt>
+<dd>a RouteViews database to augment
+reported cluster information.</dd>
+</dl>
+</dd>
+</dl>
+<p>Returns:</p>
+<blockquote>
+<div>A dict that contains for each cluster, a list of resources
+against each resource type.</div></blockquote>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.get_raw_clusterinfo">
+<code class="descname">get_raw_clusterinfo</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.get_raw_clusterinfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.get_raw_clusterinfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the raw cluster information</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A tuple consisting of a dict of resources, a dict of links
+in the graph and the list of handles whose that were
+filtered.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.plot_graph">
+<code class="descname">plot_graph</code><span class="sig-paren">(</span><em>outputfile=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.plot_graph"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.plot_graph" title="Permalink to this definition">¶</a></dt>
+<dd><p>Build a graph of whois resources.</p>
+<p>Use graphviz to build the graph. Default format is neato
+The graph format is either png or svg.
+An svg image can show tooltips.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>outputfile(file handle): If not None, write graph to this file.</dd>
+<dt>Returns:</dt>
+<dd>A base64 encoded image of the whois resource graph.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.plot_resources">
+<code class="descname">plot_resources</code><span class="sig-paren">(</span><em>plotfile=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.plot_resources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.plot_resources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Scatter Plot number of URLs and IPs in each cluster.</p>
+<p>Produce a Scatter Plot of the number of resources of each type
+in each cluster. Annotate the top 10 clusters in terms of
+resource density.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>plotfile (str, default=None): Graph file to write to</dd>
+<dt>Returns:</dt>
+<dd>A base64 encoded image of the scatter plot.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.write_cluster_json">
+<code class="descname">write_cluster_json</code><span class="sig-paren">(</span><em>jh</em>, <em>extended=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.write_cluster_json"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.write_cluster_json" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write the cluster information in json format.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>jh(file handle): The target file for the JSON data.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.write_cluster_summary">
+<code class="descname">write_cluster_summary</code><span class="sig-paren">(</span><em>messages</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.write_cluster_summary"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.write_cluster_summary" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write the cluster summary information.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>messages(array of strings): A list of messages associated</dt>
+<dd>with the clusters.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.write_raw_json">
+<code class="descname">write_raw_json</code><span class="sig-paren">(</span><em>jh</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.write_raw_json"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.write_raw_json" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write the raw resource information in json format.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>jh(file handle): The target file for the JSON data.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.ResourceReporter.write_report">
+<code class="descname">write_report</code><span class="sig-paren">(</span><em>rh</em>, <em>clusterplot=False</em>, <em>clustergraph=False</em>, <em>extended=False</em>, <em>rvf=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#ResourceReporter.write_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.ResourceReporter.write_report" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write cluster info</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><p class="first">rh(file handle): The target file for the HTML data.</p>
+<dl class="docutils">
+<dt>clusterplot(boolean): If True, generate and write cluster</dt>
+<dd>plot information to report.</dd>
+<dt>clustergraph(boolean): If True, generate and write network</dt>
+<dd>resource information to report.</dd>
+</dl>
+<p>extended(boolean): If True produce additional details.</p>
+<dl class="last docutils">
+<dt>rvf(RouteViewsFetcher): If not None, use this object to</dt>
+<dd>augment report with RouteViews
+derived information.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.analyze.WhoisAnalyzer">
+<em class="property">class </em><code class="descclassname">map_resources.analyze.</code><code class="descname">WhoisAnalyzer</code><span class="sig-paren">(</span><em>store=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Define a class for analyzing a list of collection objects.</p>
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.analyze">
+<code class="descname">analyze</code><span class="sig-paren">(</span><em>objlist</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.analyze"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.analyze" title="Permalink to this definition">¶</a></dt>
+<dd><p>Analyze a list of handles.</p>
+<p>Each handle in the list is used as a starting point for the
+collection of resources through the process_new_collection()
+method.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>objlist (dict): A dict of handles-&gt;type mappings.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.append_message">
+<code class="descname">append_message</code><span class="sig-paren">(</span><em>msg</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.append_message"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.append_message" title="Permalink to this definition">¶</a></dt>
+<dd><p>Append a new message to the analyzer object.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.fetch">
+<code class="descname">fetch</code><span class="sig-paren">(</span><em>ctype</em>, <em>loc</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.fetch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.fetch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch the data corresponding to the given type and loc str.</p>
+<p>If we have a collection object try fetching through that first
+in order to get the benefit of caching. Otherwise look at the
+data store</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>ctype (str): Collection type.
+loc (str): The ID string.</dd>
+<dt>Returns:</dt>
+<dd>The result object structure.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.generate_clusters">
+<code class="descname">generate_clusters</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.generate_clusters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.generate_clusters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Group resources according to their subgraphs.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A tuple consisting of a dict of resources, a dict of links
+in the graph and the list of handles that were filtered.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.generate_results">
+<code class="descname">generate_results</code><span class="sig-paren">(</span><em>options</em>, <em>rvf=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.generate_results"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.generate_results" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate various result components.</p>
+<p>The different result components can include a report file, a JSON
+structure with cluster information, a Graphviz graph and a plot
+of the graph using matplotlib.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><p class="first">options(dict):  A dict containing the following parameters:</p>
+<blockquote>
+<div><dl class="docutils">
+<dt>reportfile(file handle): If not None, the target file to</dt>
+<dd>write the HTML report into.</dd>
+<dt>jsonfile(file handle) <span class="classifier-delimiter">:</span> <span class="classifier">The target file for raw jason</span></dt>
+<dd>resource information.</dd>
+<dt>cjsonfile(file handle) <span class="classifier-delimiter">:</span> <span class="classifier">The target file for jason</span></dt>
+<dd>cluster information.</dd>
+<dt>showgraph(boolean): If True, display network graph plot</dt>
+<dd>using matplotlib.</dd>
+<dt>graphfile(filehandle): If True, write graphviz image to</dt>
+<dd>this file.</dd>
+</dl>
+<p>extended(boolean): If True produce extended details.</p>
+</div></blockquote>
+<dl class="last docutils">
+<dt>rvf(RouteViewsFetcher): If not None, use this object to</dt>
+<dd>augment report with RouteViews
+derived information.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.get_messages">
+<code class="descname">get_messages</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.get_messages"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.get_messages" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return messages.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.get_resobj">
+<code class="descname">get_resobj</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.get_resobj"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.get_resobj" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the collection container object.</p>
+<dl class="docutils">
+<dt>Return Values:</dt>
+<dd>The WhoisCollection object that serves as the 
+handle to the collection container</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.pack">
+<code class="descname">pack</code><span class="sig-paren">(</span><em>resources</em>, <em>links</em>, <em>filtered</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.pack"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.pack" title="Permalink to this definition">¶</a></dt>
+<dd><p>Pack resource and links into a dict.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>resources (dict): A dict of resources indexed by type
+links (dict): A dict of links
+filtered (list): A list of handles that are to be filtered</dd>
+<dt>Returns:</dt>
+<dd>A dict that has &#8216;resources&#8217; and &#8216;links&#8217; as two of its keys.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.process_new_collection">
+<code class="descname">process_new_collection</code><span class="sig-paren">(</span><em>t</em>, <em>h</em>, <em>comment=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.process_new_collection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.process_new_collection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Process a new collection of given type and handle.</p>
+<p>Create a new collection object with the given type. Reuse the
+cache and the data store if available, but dont link to any
+other collection object. Finally, subsume the resulting object
+into the main collection container object within self.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>t (str): Collection type.
+h (str): The collection handle.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisAnalyzer.unpack">
+<code class="descname">unpack</code><span class="sig-paren">(</span><em>clustobj</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisAnalyzer.unpack"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisAnalyzer.unpack" title="Permalink to this definition">¶</a></dt>
+<dd><p>Unpack a dict containing resources and links.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>clustobj(dict): A dict that has &#8216;resources&#8217; and &#8216;links&#8217; as</dt>
+<dd>two of its keys.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd><dl class="first last docutils">
+<dt>A tuple of three elements:</dt>
+<dd>A dict of resources indexed by type
+A dict of links
+A list of handles that are to be filtered</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.analyze.WhoisObjectFormatter">
+<em class="property">class </em><code class="descclassname">map_resources.analyze.</code><code class="descname">WhoisObjectFormatter</code><span class="sig-paren">(</span><em>getter</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisObjectFormatter"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisObjectFormatter" title="Permalink to this definition">¶</a></dt>
+<dd><p>A class that allows us to format data received from whois.</p>
+<dl class="method">
+<dt id="map_resources.analyze.WhoisObjectFormatter.get_asninfo">
+<code class="descname">get_asninfo</code><span class="sig-paren">(</span><em>loc</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisObjectFormatter.get_asninfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisObjectFormatter.get_asninfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate asn info.</p>
+<p>Build a dict structure that contains ASN related
+information.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>loc(str): The object identifier.</dd>
+<dt>Returns:</dt>
+<dd><dl class="first last docutils">
+<dt>A dict structure with the following keys:</dt>
+<dd>&#8216;handle&#8217;: ASN handle</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisObjectFormatter.get_netinfo">
+<code class="descname">get_netinfo</code><span class="sig-paren">(</span><em>loc</em>, <em>rvf=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisObjectFormatter.get_netinfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisObjectFormatter.get_netinfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate net info.</p>
+<p>Build a dict structure that contains information such as the
+registration date, the different netblocks, and the network
+handle. Also fetch information from the routing table if we have
+access to a Route Views database.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><p class="first">loc(str): The object identifier.</p>
+<dl class="last docutils">
+<dt>rvf(RouteViewsFetcher): If not None, fetch information such</dt>
+<dd>as routed netbocks and origination
+AS in order to determine if any
+network resources are originated by
+resources in a different cluster.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd><dl class="first last docutils">
+<dt>A dict structure with the following keys:</dt>
+<dd>&#8216;handle&#8217;: network handle
+&#8216;regstration&#8217;: registration date
+&#8216;netblocks&#8217;: a JSONized string of a list of network blocks
+&#8216;routed&#8217;: a JSONized string of a list of routed network blocks</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisObjectFormatter.get_orginfo">
+<code class="descname">get_orginfo</code><span class="sig-paren">(</span><em>loc</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisObjectFormatter.get_orginfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisObjectFormatter.get_orginfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate org info.</p>
+<p>Build a dict structure that contains organization related
+information.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>loc(str): The object identifier.</dd>
+<dt>Returns:</dt>
+<dd><dl class="first last docutils">
+<dt>A dict structure with the following keys:</dt>
+<dd>&#8216;handle&#8217;: organizational handle</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisObjectFormatter.get_pocinfo">
+<code class="descname">get_pocinfo</code><span class="sig-paren">(</span><em>loc</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisObjectFormatter.get_pocinfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisObjectFormatter.get_pocinfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate poc info.</p>
+<p>Build a dict structure that contains Point of Contact related
+information.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>loc(str): The object identifier.</dd>
+<dt>Returns:</dt>
+<dd><dl class="first last docutils">
+<dt>A dict structure with the following keys:</dt>
+<dd>&#8216;handle&#8217;: POC handle</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.analyze.WhoisOptParser">
+<em class="property">class </em><code class="descclassname">map_resources.analyze.</code><code class="descname">WhoisOptParser</code><span class="sig-paren">(</span><em>prog</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class to parse options related to any whois interfacing script.</p>
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.add_stores">
+<code class="descname">add_stores</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.add_stores"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.add_stores" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register the options associated with different data store types.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.get_help">
+<code class="descname">get_help</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.get_help"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.get_help" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the formatted help text.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>Str value containing formatted help text.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.get_parser">
+<code class="descname">get_parser</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.get_parser"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.get_parser" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the parser associated with this object.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.host_port">
+<code class="descname">host_port</code><span class="sig-paren">(</span><em>s</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.host_port"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.host_port" title="Permalink to this definition">¶</a></dt>
+<dd><p>A simple type for a host:port identifier</p>
+<p>Throws argparse.ArgumentTypeError if the provided string is not
+formated as hostname:port.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>s (str): a string of the form hostname:port</dd>
+<dt>Returns:</dt>
+<dd>The host(str) and port(int) tuple.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.parse">
+<code class="descname">parse</code><span class="sig-paren">(</span><em>argv</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.parse"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.parse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parse the list of options.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>A list of arguments provided in argv.</dd>
+<dt>Returns:</dt>
+<dd>A dict structure that contains different analyzer options.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.parse_objs">
+<code class="descname">parse_objs</code><span class="sig-paren">(</span><em>p</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.parse_objs"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.parse_objs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Extract object handles and types from provided options.</p>
+<p>The object handle could come from a file or from the relevant
+option associated with each resource type.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>p(Namespace): Contains various command line parameters.</dd>
+<dt>Returns:</dt>
+<dd>A dict objects whose keys correspond to the different handle
+identifiers and whose values correspond to the resource
+type.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.parse_objs_from_file">
+<code class="descname">parse_objs_from_file</code><span class="sig-paren">(</span><em>rsrcfile</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.parse_objs_from_file"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.parse_objs_from_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Extract resource handles from the given file.</p>
+<p>Each line of the file should be formatted as &lt;type&gt;:&lt;value&gt;,
+where the different supported types are &#8216;asn&#8217;, &#8216;poc&#8217;, &#8216;org&#8217;,
+&#8216;net&#8217;, &#8216;cidr&#8217;, &#8216;ip&#8217; and &#8216;url&#8217;.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>rsrcfile(file handle):</dd>
+<dt>Return Values:</dt>
+<dd>A dict object containing a mapping between
+the resource handle and the resource type.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.parse_opts">
+<code class="descname">parse_opts</code><span class="sig-paren">(</span><em>p</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.parse_opts"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.parse_opts" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parse the list of options given in the parser namespace.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>A namespace containing the different parsed options.</dd>
+<dt>Returns:</dt>
+<dd>A dict structure that contains different analyzer options.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.analyze.WhoisOptParser.parse_store">
+<code class="descname">parse_store</code><span class="sig-paren">(</span><em>p</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/analyze.html#WhoisOptParser.parse_store"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.analyze.WhoisOptParser.parse_store" title="Permalink to this definition">¶</a></dt>
+<dd><p>Extract the store type from provided options.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>p(Namespace): Contains various command line parameters.</dd>
+<dt>Returns:</dt>
+<dd>A GenericStore object corresponding to the selected data
+store type.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-map_resources.fetch_whois">
+<span id="map-resources-fetch-whois-module"></span><h2>map_resources.fetch_whois module<a class="headerlink" href="#module-map_resources.fetch_whois" title="Permalink to this headline">¶</a></h2>
+<p>Query ARIN whois objects</p>
+<p>This module provides the functionality to query the ARIN RESTful API
+for all resource dependencies starting from the given ASN, POC, Org or
+Net handle.</p>
+<dl class="docutils">
+<dt>Attributes:</dt>
+<dd>verbose (boolean): Turns on verbosity of log messages.</dd>
+</dl>
+<dl class="class">
+<dt id="map_resources.fetch_whois.ASNCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">ASNCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#ASNCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.ASNCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.WhoisCollection" title="map_resources.fetch_whois.WhoisCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.WhoisCollection</span></code></a></p>
+<p>ASN Resource Class</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.ASNCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#ASNCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.ASNCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this ASN container.</p>
+<p>ASN collections may be comprised of POC and Org collections.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.ASNCollection.slurp_set">
+<code class="descname">slurp_set</code><span class="sig-paren">(</span><em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#ASNCollection.slurp_set"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.ASNCollection.slurp_set" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the ASN handle and slurp data.</p>
+<p>ASN resources may be found in XML elements named asnPocLinkRef
+or asnRef.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.CIDRCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">CIDRCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#CIDRCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.CIDRCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.NetCollection" title="map_resources.fetch_whois.NetCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.NetCollection</span></code></a></p>
+<p>IP container class (ephemeral).</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.CIDRCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#CIDRCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.CIDRCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this CIDR block.</p>
+<p>Look for the associated NetCollection object and perform the
+slurp operation over that object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): The origin handle for the slurp operation</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.DBStore">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">DBStore</code><span class="sig-paren">(</span><em>dbhost</em>, <em>dbport</em>, <em>local=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#DBStore"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.DBStore" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.GenericStore" title="map_resources.fetch_whois.GenericStore"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.GenericStore</span></code></a></p>
+<p>Wrapper around a MongoDB data store.</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.DBStore.fetch">
+<code class="descname">fetch</code><span class="sig-paren">(</span><em>ctype</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#DBStore.fetch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.DBStore.fetch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch data for the given ID string and collection type.</p>
+<p>First look at the MongoDB store for any matching data. If found return
+that data; if not, fetch new data but only if we are not
+limiting lookups to already-cached values.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.DBStore.find_collection">
+<code class="descname">find_collection</code><span class="sig-paren">(</span><em>ctype</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#DBStore.find_collection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.DBStore.find_collection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the DB collection associated with the given object type.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>ctype (str): The collection object type.</dd>
+<dt>Returns:</dt>
+<dd>The mongoDB collection object.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.GenericStore">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">GenericStore</code><span class="sig-paren">(</span><em>base='http://whois.arin.net/rest'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#GenericStore"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.GenericStore" title="Permalink to this definition">¶</a></dt>
+<dd><p>Base class for all data stores with no caching support.</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.GenericStore.fetch">
+<code class="descname">fetch</code><span class="sig-paren">(</span><em>ctype</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#GenericStore.fetch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.GenericStore.fetch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch data for the given ID string and collection type.</p>
+<p>No caching is done in this routine. Just query and return.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>ctype (str): The collection type.
+idstr (str): The location reference for the whois object.</dd>
+<dt>Returns:</dt>
+<dd>A dict object representing the result.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.GenericStore.fetchAssociated">
+<code class="descname">fetchAssociated</code><span class="sig-paren">(</span><em>obj</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#GenericStore.fetchAssociated"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.GenericStore.fetchAssociated" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch an object&#8217;s associated data, given an ID string.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>obj (str): The object for which we are seeking associated data.
+idstr (str): The ID string.</dd>
+<dt>Returns:</dt>
+<dd>A dict object representing the result.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.GenericStore.get_idstr">
+<code class="descname">get_idstr</code><span class="sig-paren">(</span><em>typepfx</em>, <em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#GenericStore.get_idstr"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.GenericStore.get_idstr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determine the set of IDs for given type and handle.</p>
+<p>This is the default way of constructing an ID.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>typepfx (str): The collection type.
+handle (str): The resource handle.</dd>
+<dt>Returns:</dt>
+<dd>A tuple comprising the handle and
+a list of ID strings and collection type values.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.GenericStore.query">
+<code class="descname">query</code><span class="sig-paren">(</span><em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#GenericStore.query"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.GenericStore.query" title="Permalink to this definition">¶</a></dt>
+<dd><p>Query the data store for the given ID string.</p>
+<p>This is the common query method for all types of data stores.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>idstr (str): The ID string.</dd>
+<dt>Returns:</dt>
+<dd>A dict object representing the result.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.HashStore">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">HashStore</code><span class="sig-paren">(</span><em>base='http://whois.arin.net/rest'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#HashStore"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.HashStore" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.GenericStore" title="map_resources.fetch_whois.GenericStore"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.GenericStore</span></code></a></p>
+<p>Implementation of a simple hash data store (non-persistent).</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.HashStore.fetch">
+<code class="descname">fetch</code><span class="sig-paren">(</span><em>ctype</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#HashStore.fetch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.HashStore.fetch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch data for the given ID string and collection type.</p>
+<p>First look at the hash for any matching data. If found return
+that data; if not fetch new data.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.IPCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">IPCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#IPCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.IPCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.NetCollection" title="map_resources.fetch_whois.NetCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.NetCollection</span></code></a></p>
+<p>IP container class (ephemeral).</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.IPCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#IPCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.IPCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this IP address.</p>
+<p>Look for the associated NetCollection object and perform the
+slurp operation over that object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): The origin handle for the slurp operation.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.NetCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">NetCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#NetCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.NetCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.WhoisCollection" title="map_resources.fetch_whois.WhoisCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.WhoisCollection</span></code></a></p>
+<p>Net Resource Class.</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.NetCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#NetCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.NetCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this Net container.</p>
+<p>Net collections may be comprised of POC or Org collections.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.NetCollection.slurp_set">
+<code class="descname">slurp_set</code><span class="sig-paren">(</span><em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#NetCollection.slurp_set"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.NetCollection.slurp_set" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the Net handle and slurp data.</p>
+<p>Net resources may be found in XML elements named netPocLinkRef
+or netRef.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.OrgCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">OrgCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#OrgCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.OrgCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.WhoisCollection" title="map_resources.fetch_whois.WhoisCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.WhoisCollection</span></code></a></p>
+<p>Organization Resouce Class</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.OrgCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#OrgCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.OrgCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this Org container.</p>
+<p>Org collections may be comprised of POC, ASN and Net
+collections.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.OrgCollection.slurp_set">
+<code class="descname">slurp_set</code><span class="sig-paren">(</span><em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#OrgCollection.slurp_set"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.OrgCollection.slurp_set" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the Org handle and slurp data.</p>
+<p>Orgs may be found in XML elements named orgPocLinkRef or orgRef.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.OrgstrCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">OrgstrCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#OrgstrCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.OrgstrCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.OrgCollection" title="map_resources.fetch_whois.OrgCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.OrgCollection</span></code></a></p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.OrgstrCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#OrgstrCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.OrgstrCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this OrgName</p>
+<p>Look for the associated OrgCollection object and perform the
+slurp operation over that object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): The origin handle for the slurp operation.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.POCCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">POCCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#POCCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.POCCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.WhoisCollection" title="map_resources.fetch_whois.WhoisCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.WhoisCollection</span></code></a></p>
+<p>Point of Contact Resource Class.</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.POCCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#POCCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.POCCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this POC container.</p>
+<p>POC collections may be comprised of Org, ASN and Net collections.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): The origin handle for the slurp operation.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.POCCollection.slurp_set">
+<code class="descname">slurp_set</code><span class="sig-paren">(</span><em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#POCCollection.slurp_set"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.POCCollection.slurp_set" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the POC handle and slurp data.</p>
+<p>POCs may be found in XML elements named pocLinkRef or pocRef.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>base (str): The base URL for lookups.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.URLCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">URLCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#URLCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.URLCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#map_resources.fetch_whois.POCCollection" title="map_resources.fetch_whois.POCCollection"><code class="xref py py-class docutils literal"><span class="pre">map_resources.fetch_whois.POCCollection</span></code></a></p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.URLCollection.slurp">
+<code class="descname">slurp</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#URLCollection.slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.URLCollection.slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Look for all objects that can be reached from this URL.</p>
+<p>Look for the associated POCCollection object and perform the
+slurp operation over that object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): The origin handle for the slurp operation.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.fetch_whois.WhoisCollection">
+<em class="property">class </em><code class="descclassname">map_resources.fetch_whois.</code><code class="descname">WhoisCollection</code><span class="sig-paren">(</span><em>origin_handle</em>, <em>origin=None</em>, <em>store=None</em>, <em>cache=None</em>, <em>tt=None</em>, <em>threshold=None</em>, <em>whitelist=None</em>, <em>blacklist=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Base class for all Whois collection objects.</p>
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.add_collection">
+<code class="descname">add_collection</code><span class="sig-paren">(</span><em>col</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.add_collection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.add_collection" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a new associated ollection to the current object.</p>
+<p>Collections are indexed by the origin handle. There can be
+multiple collections per origin handle. As part of adding the
+collection also update the cache from the to-be-added collection
+to the main (parent) collection holder.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>col (WhoisCollection): the collection object to be added.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.add_link">
+<code class="descname">add_link</code><span class="sig-paren">(</span><em>handle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.add_link"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.add_link" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create a link between the current object and the given handle.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): the handle of the collection to link with.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.add_tooltip">
+<code class="descname">add_tooltip</code><span class="sig-paren">(</span><em>handle</em>, <em>msg</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.add_tooltip"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.add_tooltip" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a new tooltip to the object.</p>
+<p>Append a new tooltip to the list indexed by the given handle.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>handle (str): the handle to associate the tool-tip with.
+msg (str): the tool-tip message.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.do_slurp">
+<code class="descname">do_slurp</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.do_slurp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.do_slurp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Entry point for looking up resource objects.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.fetchAssociatedObj">
+<code class="descname">fetchAssociatedObj</code><span class="sig-paren">(</span><em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.fetchAssociatedObj"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.fetchAssociatedObj" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get associated data for given idstr.</p>
+<p>This method asks the data store for any associated objects.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>idstr (str): object ID str.</dd>
+<dt>Returns:</dt>
+<dd>A tuple with two values: the first is whether the data was
+cached or not; and the second is the actual result object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.fetchObj">
+<code class="descname">fetchObj</code><span class="sig-paren">(</span><em>typepfx</em>, <em>handle</em>, <em>cache=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.fetchObj"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.fetchObj" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get data corresponding to given handle and collection type.</p>
+<p>This method first constructs the ID string(s) corresponding to
+the handle and then calls get_data() to get the actual result
+object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>typepfx (string): Collection type.
+handle (string): Resource handle.
+cache (boolean): If true, any data returned by get_data() is cached.</dd>
+<dt>Returns:</dt>
+<dd>A list of object tuples. Each object tuple contains three
+values: the first is whether the data was fresh (not cached)
+or not; the second, is the ID string, and the third is the
+result object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.fill_draw_attribs">
+<code class="descname">fill_draw_attribs</code><span class="sig-paren">(</span><em>node_h</em>, <em>a</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.fill_draw_attribs"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.fill_draw_attribs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get different attributes of this collection.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd><p class="first">A dict structure that contains the following attributes for
+the collection object:</p>
+<p class="last">shape: the shape to use in any graphical representation.
+style: the figure style, such as its filled status.
+fillcolor: the fillcolor to use.
+color: the color to use.
+penwidth: the penwidth to use.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_blacklist">
+<code class="descname">get_blacklist</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_blacklist"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_blacklist" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the blacklisted handles.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>List of object handle strings that are blacklisted.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_cache">
+<code class="descname">get_cache</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_cache"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_cache" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the cache structure for the collection object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A dict value that holds the cache information for the
+WhoisCollection object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_collections">
+<code class="descname">get_collections</code><span class="sig-paren">(</span><em>recurse=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_collections"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_collections" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get list of collections associated with the given object.</p>
+<p>Return all objects below and including the current one
+grouped by their handle.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>recurse (boolean): return collection objects by traversing</dt>
+<dd>all collections that are linked through
+previous calls to add_collection().</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>A dict of lists of WhoisCollection objects. The keys 
+of the dict are the origin handles that were used in the
+construction of the associated WhoisCollection objects.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_data">
+<code class="descname">get_data</code><span class="sig-paren">(</span><em>ctype</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get data corresponding to given ID string and collection type.</p>
+<p>First check if the data exists in the cache. If it doesn&#8217;t then
+look for data in the data store.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>ctype (string): Collection type.
+idstr (string): ID string.</dd>
+<dt>Returns:</dt>
+<dd>A tuple of two values, where the first is a boolean value
+that indicates whether the data was cached or not, and the
+second is the result dict object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_filtered">
+<code class="descname">get_filtered</code><span class="sig-paren">(</span><em>recurse=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_filtered"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_filtered" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the list of handles that were filtered</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>recurse (boolean): traverse all collections that are linked</dt>
+<dd>through previous calls to
+add_collection().</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>A lists of handles that were filtered.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_links">
+<code class="descname">get_links</code><span class="sig-paren">(</span><em>recurse=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_links"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_links" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the list of links associated with the given object.</p>
+<p>For each object below and including the current node return
+the list of connected nodes.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>recurse (boolean): return links by traversing all</dt>
+<dd>collections that are linked through
+previous calls to add_collection().</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>A dict of lists of handles. The keys of the dict are the
+origin handles that were used in the construction of the
+associated WhoisCollection objects.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_parent">
+<code class="descname">get_parent</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_parent"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_parent" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the parent object for the object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>The WhoisContainer object corresponding to the parent.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_parent_handle">
+<code class="descname">get_parent_handle</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_parent_handle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_parent_handle" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the origin (parent) handle for the object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>The string value for the origin handle.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_resources">
+<code class="descname">get_resources</code><span class="sig-paren">(</span><em>recurse=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_resources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_resources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the list of resources associated with the given object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>recurse (boolean): return resources by traversing all</dt>
+<dd>collections that are linked through
+previous calls to add_collection().</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>A dict of lists of resources. The keys are the
+resource types.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_store">
+<code class="descname">get_store</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_store"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_store" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the store associated with this object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>The GenericStore object that is associated with the given
+collection object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_threshold">
+<code class="descname">get_threshold</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_threshold"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_threshold" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the threshold for the collection object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>An integer value that holds the threshold value.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_tooltip">
+<code class="descname">get_tooltip</code><span class="sig-paren">(</span><em>recurse=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_tooltip"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_tooltip" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the list of tooltips associated with the given object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>recurse (boolean): return tooltips by traversing all</dt>
+<dd>collections that are linked through
+previous calls to add_collection().</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>A dict of lists of tooltips. The keys are the
+origin handles.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_type">
+<code class="descname">get_type</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_type"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_type" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the collection type for the given collection object.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A str value corresponding to the type of the whois
+collection object.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.get_whitelist">
+<code class="descname">get_whitelist</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.get_whitelist"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.get_whitelist" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the whitelisted handles.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>List of object handle strings that are whitelisted from
+fitering.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.set_limit_exceeded">
+<code class="descname">set_limit_exceeded</code><span class="sig-paren">(</span><em>handle</em>, <em>idstr</em>, <em>lim</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.set_limit_exceeded"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.set_limit_exceeded" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the object state to indicate too many dependencies.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first docutils">
+<dt>handle (str): the handle against which the limit exceeded</dt>
+<dd>state is to be associated.</dd>
+</dl>
+<p>idstr (str): the ID string that triggered the limit exceeded event.</p>
+<p class="last">lim (int): the number of dependencies that were detected.</p>
+</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.slurp_common">
+<code class="descname">slurp_common</code><span class="sig-paren">(</span><em>p</em>, <em>idstr</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.slurp_common"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.slurp_common" title="Permalink to this definition">¶</a></dt>
+<dd><p>Common convenience function for data slurping.</p>
+<p>If we&#8217;re presented with a dict, look for the handle in all
+list elements; if not, check in the provided list.
+Do not process those objects whose child collections have number
+of elements greater than a particular threshold.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><p class="first">p (str): the link reference to process.</p>
+<p class="last">idstr (str): object ID str.</p>
+</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.fetch_whois.WhoisCollection.subsume">
+<code class="descname">subsume</code><span class="sig-paren">(</span><em>col</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/fetch_whois.html#WhoisCollection.subsume"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.fetch_whois.WhoisCollection.subsume" title="Permalink to this definition">¶</a></dt>
+<dd><p>Subsume the new collection object.</p>
+<p>Merge various pertinent data associated with the new collection
+object into the current collection object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>col (WhoisCollection): the collection object that we want to subsume.</dd>
+<dt>Returns:</dt>
+<dd>None</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-map_resources.whois_rv_cmp">
+<span id="map-resources-whois-rv-cmp-module"></span><h2>map_resources.whois_rv_cmp module<a class="headerlink" href="#module-map_resources.whois_rv_cmp" title="Permalink to this headline">¶</a></h2>
+<p>Get data from a local database instance of RouteViews.</p>
+<p>This module serves as the interface between the WhoisAnalyzer object and
+the database view of RouteViews data. The Route Views data must first be
+pre-populated within a database.</p>
+<dl class="docutils">
+<dt>This module provides two classes:</dt>
+<dd><dl class="first last docutils">
+<dt>RVFetcher: provides a simple interface to fetch netblocks from the</dt>
+<dd>database</dd>
+<dt>RVComparator: Does some comparisons between a set of ASNs and</dt>
+<dd>network block data and the RouteViews DB.</dd>
+</dl>
+</dd>
+<dt>Attributes:</dt>
+<dd>verbose (boolean): Turns on verbosity of log messages.</dd>
+</dl>
+<dl class="class">
+<dt id="map_resources.whois_rv_cmp.RVComparator">
+<em class="property">class </em><code class="descclassname">map_resources.whois_rv_cmp.</code><code class="descname">RVComparator</code><span class="sig-paren">(</span><em>dbfile</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator" title="Permalink to this definition">¶</a></dt>
+<dd><p>comparison between Whois objects and Route Views data.</p>
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparator.add_asn">
+<code class="descname">add_asn</code><span class="sig-paren">(</span><em>asn</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator.add_asn"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator.add_asn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add the ASN to the SQL query.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>asn(str): The ASN handle</dd>
+<dt>Returns:</dt>
+<dd>True if the ASN was added.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparator.add_net">
+<code class="descname">add_net</code><span class="sig-paren">(</span><em>startAddr</em>, <em>endAddr</em>, <em>oaslist</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator.add_net"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator.add_net" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add the network block to the SQL query.</p>
+<p>Note that IPv6 address blocks are ignored.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>startAddr(str): The start address in the block.
+endAddr(str): The end address in the block.
+oaslist(list): a list of origin ASNs associated with this netblock.</dd>
+<dt>Returns:</dt>
+<dd>True if the network block was added.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparator.compare">
+<code class="descname">compare</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator.compare"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator.compare" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compare known resources against Route Views data.</p>
+<p>Issue the sql query, check which prefixes and ASNs are unknown.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>An RVComparatorRes object that encapsulates the results of
+the comparison.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparator.compare_resources">
+<code class="descname">compare_resources</code><span class="sig-paren">(</span><em>resob</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator.compare_resources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator.compare_resources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register known resources and compare against Route Views.</p>
+<p>Register all ASNs and Net objects from the WhoisAnalyzer object
+and then call compare() in order to check for differences
+against Route Views data.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd><dl class="first last docutils">
+<dt>resob(WhoisAnalyzer): object that holds the list of ASN and</dt>
+<dd>Net resources we are interested in
+analyzing.</dd>
+</dl>
+</dd>
+<dt>Returns:</dt>
+<dd>An RVComparatorRes object that encapsulates the results of
+the comparison.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparator.is_pfx_known">
+<code class="descname">is_pfx_known</code><span class="sig-paren">(</span><em>start</em>, <em>end</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparator.is_pfx_known"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparator.is_pfx_known" title="Permalink to this definition">¶</a></dt>
+<dd><p>Check if the given network block is one that we know about.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>start(str): network block start.
+end(str): network block end.</dd>
+<dt>Returns:</dt>
+<dd>True if the network block exists in our list; False if not.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes">
+<em class="property">class </em><code class="descclassname">map_resources.whois_rv_cmp.</code><code class="descname">RVComparatorRes</code><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class for encapsulating the comparator result.</p>
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_asn">
+<code class="descname">add_unknown_asn</code><span class="sig-paren">(</span><em>asn</em>, <em>pfxlist</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.add_unknown_asn"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_asn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register an unknown AS.</p>
+<p>Register the previously unknown ASN that was found to originate
+a known prefix.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>asn: The (unknown) ASN originating the prefix.
+pfx: The prefix from a known block that was originated.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_oasn">
+<code class="descname">add_unknown_oasn</code><span class="sig-paren">(</span><em>asn</em>, <em>pfx</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.add_unknown_oasn"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_oasn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register an unknown originating AS.</p>
+<p>Register the ASN originating a known prefix but was not
+configured as the originating AS in whois.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>asn: The (known) ASN originating the prefix.
+pfx: The prefix from a known block that was originated.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_pfx">
+<code class="descname">add_unknown_pfx</code><span class="sig-paren">(</span><em>asn</em>, <em>pfx</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.add_unknown_pfx"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_pfx" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register an unknown prefix.</p>
+<p>Register the previously unknown prefix that was originated from
+a known ASN.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>asn: The known ASN originating the prefix.
+pfx: The unknown prefix that was originated.</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_asn">
+<code class="descname">get_unknown_asn</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.get_unknown_asn"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_asn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the list of unknown ASNs.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A dict structure that maps ASNs to the prefix values.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_oasn">
+<code class="descname">get_unknown_oasn</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.get_unknown_oasn"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_oasn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the list of unknown originating ASNs.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A dict structure that maps ASNs to the prefix values.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_pfx">
+<code class="descname">get_unknown_pfx</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.get_unknown_pfx"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_pfx" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the list of unknown prefixes.</p>
+<dl class="docutils">
+<dt>Returns:</dt>
+<dd>A dict structure that maps prefixes to the ASNs they were
+originated from.</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVComparatorRes.process_unknown_resources">
+<code class="descname">process_unknown_resources</code><span class="sig-paren">(</span><em>analyzer</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVComparatorRes.process_unknown_resources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVComparatorRes.process_unknown_resources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Process all unknown dependencies.</p>
+<p>Feed all unknown dependencies that were detected in
+Routeviews through the WhoisAnalyzer object.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>analyzer(WhoisAnalyzer): the analyzer object</dd>
+<dt>Returns:</dt>
+<dd>None.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="map_resources.whois_rv_cmp.RVFetcher">
+<em class="property">class </em><code class="descclassname">map_resources.whois_rv_cmp.</code><code class="descname">RVFetcher</code><span class="sig-paren">(</span><em>dbfile</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVFetcher"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVFetcher" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class to fetch objects from route views.</p>
+<dl class="method">
+<dt id="map_resources.whois_rv_cmp.RVFetcher.find_netblocks">
+<code class="descname">find_netblocks</code><span class="sig-paren">(</span><em>start</em>, <em>end</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/map_resources/whois_rv_cmp.html#RVFetcher.find_netblocks"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#map_resources.whois_rv_cmp.RVFetcher.find_netblocks" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find netblocks that fall between the given prefix bounds.</p>
+<p>Look up all netblocks that fall between the start and end
+bounds. IPv6 address blocks are ignored.</p>
+<dl class="docutils">
+<dt>Args:</dt>
+<dd>start(str): start prefix
+end(str): end prefix</dd>
+<dt>Returns:</dt>
+<dd>A cursor iterator that holds the results of the lookup.</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">map_resources package</a><ul>
+<li><a class="reference internal" href="#module-map_resources">Module contents</a></li>
+<li><a class="reference internal" href="#module-map_resources.map_whois">map_resources.map_whois</a></li>
+<li><a class="reference internal" href="#module-map_resources.query_resources">map_resources.query_resources</a></li>
+<li><a class="reference internal" href="#module-map_resources.analyze">map_resources.analyze module</a></li>
+<li><a class="reference internal" href="#module-map_resources.fetch_whois">map_resources.fetch_whois module</a></li>
+<li><a class="reference internal" href="#module-map_resources.whois_rv_cmp">map_resources.whois_rv_cmp module</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="examples.html"
+                        title="previous chapter">MapResources Examples</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/map_resources.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+      |
+      <a href="_sources/map_resources.txt"
+          rel="nofollow">Page source</a></li>
+    </div>
+
+    
+
+    
+  </body>
+</html>

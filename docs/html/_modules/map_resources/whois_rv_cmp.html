@@ -1,0 +1,484 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>map_resources.whois_rv_cmp &mdash; map_resources  documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="map_resources  documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">map_resources  documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for map_resources.whois_rv_cmp</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Get data from a local database instance of RouteViews.</span>
+
+<span class="sd">This module serves as the interface between the WhoisAnalyzer object and</span>
+<span class="sd">the database view of RouteViews data. The Route Views data must first be</span>
+<span class="sd">pre-populated within a database. </span>
+
+<span class="sd">This module provides two classes:</span>
+<span class="sd">    RVFetcher: provides a simple interface to fetch netblocks from the</span>
+<span class="sd">               database</span>
+<span class="sd">    RVComparator: Does some comparisons between a set of ASNs and</span>
+<span class="sd">               network block data and the RouteViews DB. </span>
+
+<span class="sd">Attributes:</span>
+<span class="sd">  verbose (boolean): Turns on verbosity of log messages.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sqlite3</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">isfile</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">import</span> <span class="nn">ipaddress</span>
+
+<span class="k">global</span> <span class="n">verbose</span>
+<span class="n">verbose</span> <span class="o">=</span> <span class="bp">False</span>
+
+<span class="c">###############################################################</span>
+
+<div class="viewcode-block" id="RVFetcher"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVFetcher">[docs]</a><span class="k">class</span> <span class="nc">RVFetcher</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Class to fetch objects from route views.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;RVFetcher constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dbfile (file handle): handle to a sqlite3 database.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">isfile</span><span class="p">(</span><span class="n">dbfile</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> 
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;RVFetcher destructor.</span>
+<span class="sd">        </span>
+<span class="sd">        Close the database connection when we&#39;re done.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="RVFetcher.find_netblocks"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVFetcher.find_netblocks">[docs]</a>    <span class="k">def</span> <span class="nf">find_netblocks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find netblocks that fall between the given prefix bounds.</span>
+
+<span class="sd">        Look up all netblocks that fall between the start and end</span>
+<span class="sd">        bounds. IPv6 address blocks are ignored.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            start(str): start prefix</span>
+<span class="sd">            end(str): end prefix</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A cursor iterator that holds the results of the lookup.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">stmt</span> <span class="o">=</span> <span class="s">&quot;SELECT DISTINCT prefix,lastAS FROM routeadv WHERE (prefixStart &gt;= ?) AND (prefixEnd &lt;= ?)&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">ipsobj</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">start</span><span class="p">)</span>
+        <span class="n">ipeobj</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">end</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ipsobj</span><span class="p">,</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">IPv6Address</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ipeobj</span><span class="p">,</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">IPv6Address</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="k">print</span> <span class="s">&quot;Skipping IPv6 address block&quot;</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">ipsobj</span><span class="p">))</span>
+        <span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">ipeobj</span><span class="p">))</span>
+        <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;Executing sql statement:&quot;</span> <span class="o">+</span> <span class="n">stmt</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">stmt</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="RVComparator"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator">[docs]</a><span class="k">class</span> <span class="nc">RVComparator</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;comparison between Whois objects and Route Views data.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;RVComparator constructor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            dbfile (file handle): handle to a sqlite3 database.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">header</span> <span class="o">=</span> <span class="s">&quot;SELECT DISTINCT lastAS,prefix,prefixStart,prefixEnd FROM routeadv WHERE &quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">orig_asnlist</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">orig_pfxlist</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">isfile</span><span class="p">(</span><span class="n">dbfile</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> 
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;RVComparator destructor.</span>
+<span class="sd">        </span>
+<span class="sd">        Close the database connection when we&#39;re done.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="RVComparator.add_asn"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator.add_asn">[docs]</a>    <span class="k">def</span> <span class="nf">add_asn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">asn</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add the ASN to the SQL query.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            asn(str): The ASN handle</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if the ASN was added.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">!=</span> <span class="s">&quot;&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">+=</span> <span class="s">&quot; OR &quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">+=</span> <span class="s">&quot;(lastAS = ?)&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">orig_asnlist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="RVComparator.add_net"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator.add_net">[docs]</a>    <span class="k">def</span> <span class="nf">add_net</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">startAddr</span><span class="p">,</span> <span class="n">endAddr</span><span class="p">,</span> <span class="n">oaslist</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add the network block to the SQL query.</span>
+
+<span class="sd">        Note that IPv6 address blocks are ignored.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            startAddr(str): The start address in the block.</span>
+<span class="sd">            endAddr(str): The end address in the block.</span>
+<span class="sd">            oaslist(list): a list of origin ASNs associated with this netblock.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if the network block was added.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ipsobj</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">startAddr</span><span class="p">)</span>
+        <span class="n">ipeobj</span> <span class="o">=</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">endAddr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ipsobj</span><span class="p">,</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">IPv6Address</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ipeobj</span><span class="p">,</span> <span class="n">ipaddress</span><span class="o">.</span><span class="n">IPv6Address</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">!=</span> <span class="s">&quot;&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">+=</span> <span class="s">&quot; OR &quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">+=</span> <span class="s">&quot;((prefixStart &gt;= ?) AND (prefixEnd &lt;= ?))&quot;</span>
+        <span class="n">sAddrInt</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">ipsobj</span><span class="p">)</span>
+        <span class="n">eAddrInt</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">ipeobj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sAddrInt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">eAddrInt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">orig_pfxlist</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s">&#39;start&#39;</span><span class="p">:</span><span class="n">sAddrInt</span><span class="p">,</span> <span class="s">&#39;end&#39;</span><span class="p">:</span><span class="n">eAddrInt</span><span class="p">,</span> <span class="s">&#39;oaslist&#39;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">oaslist</span><span class="p">))})</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="RVComparator.is_pfx_known"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator.is_pfx_known">[docs]</a>    <span class="k">def</span> <span class="nf">is_pfx_known</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Check if the given network block is one that we know about.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            start(str): network block start.</span>
+<span class="sd">            end(str): network block end.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if the network block exists in our list; False if not.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">pfx</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_pfxlist</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">start</span> <span class="o">&gt;=</span> <span class="n">pfx</span><span class="p">[</span><span class="s">&#39;start&#39;</span><span class="p">])</span> <span class="ow">and</span> <span class="p">(</span><span class="n">end</span> <span class="o">&lt;=</span> <span class="n">pfx</span><span class="p">[</span><span class="s">&#39;end&#39;</span><span class="p">]):</span>
+                <span class="k">return</span> <span class="bp">True</span>
+        <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="RVComparator.compare"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator.compare">[docs]</a>    <span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compare known resources against Route Views data.</span>
+
+<span class="sd">        Issue the sql query, check which prefixes and ASNs are unknown.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An RVComparatorRes object that encapsulates the results of</span>
+<span class="sd">            the comparison.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">cmpres</span> <span class="o">=</span> <span class="n">RVComparatorRes</span><span class="p">()</span>
+
+        <span class="c"># First do a general sanity check</span>
+        <span class="c">#   check if ASN configured as originator is known</span>
+        <span class="k">for</span> <span class="n">pfx</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_pfxlist</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">asn</span> <span class="ow">in</span> <span class="n">pfx</span><span class="p">[</span><span class="s">&#39;oaslist&#39;</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">asn</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_asnlist</span><span class="p">:</span> 
+                    <span class="n">cmpres</span><span class="o">.</span><span class="n">add_unknown_oasn</span><span class="p">(</span><span class="n">asn</span><span class="p">,</span> <span class="n">pfx</span><span class="p">)</span>
+
+        <span class="n">stmt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">header</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="p">:</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="k">print</span> <span class="s">&quot;Executing sql statement:&quot;</span> <span class="o">+</span> <span class="n">stmt</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">stmt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">all_rows</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">all_rows</span><span class="p">:</span>
+                <span class="n">asn</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">prefix</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">res</span><span class="p">[</span><span class="n">asn</span><span class="p">][</span><span class="n">prefix</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;start&#39;</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="s">&#39;end&#39;</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="mi">3</span><span class="p">]}</span>
+
+        <span class="c"># Check if prefix and ASN returned from RV are known</span>
+        <span class="k">for</span> <span class="n">asn</span> <span class="ow">in</span> <span class="n">res</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">pfxlist</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="n">asn</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">asn</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_asnlist</span><span class="p">:</span> 
+                <span class="n">cmpres</span><span class="o">.</span><span class="n">add_unknown_asn</span><span class="p">(</span><span class="n">asn</span><span class="p">,</span> <span class="n">pfxlist</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">pfx</span> <span class="ow">in</span> <span class="n">pfxlist</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_pfx_known</span><span class="p">(</span><span class="n">res</span><span class="p">[</span><span class="n">asn</span><span class="p">][</span><span class="n">pfx</span><span class="p">][</span><span class="s">&#39;start&#39;</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="n">asn</span><span class="p">][</span><span class="n">pfx</span><span class="p">][</span><span class="s">&#39;end&#39;</span><span class="p">]):</span>
+                    <span class="n">cmpres</span><span class="o">.</span><span class="n">add_unknown_pfx</span><span class="p">(</span><span class="n">asn</span><span class="p">,</span> <span class="n">pfx</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">cmpres</span>
+
+</div>
+<div class="viewcode-block" id="RVComparator.compare_resources"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparator.compare_resources">[docs]</a>    <span class="k">def</span> <span class="nf">compare_resources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resob</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Register known resources and compare against Route Views.</span>
+
+<span class="sd">        Register all ASNs and Net objects from the WhoisAnalyzer object</span>
+<span class="sd">        and then call compare() in order to check for differences</span>
+<span class="sd">        against Route Views data.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            resob(WhoisAnalyzer): object that holds the list of ASN and</span>
+<span class="sd">                                  Net resources we are interested in</span>
+<span class="sd">                                  analyzing.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An RVComparatorRes object that encapsulates the results of</span>
+<span class="sd">            the comparison.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">resob</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+
+        <span class="n">res</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_resources</span><span class="p">()</span>
+
+        <span class="c"># Save each ASN that we find</span>
+        <span class="k">if</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="n">res</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="n">res</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">]:</span>
+                <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="s">&#39;asn&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">data</span> <span class="ow">and</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span> 
+                    <span class="n">asn</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="s">&#39;startAsNumber&#39;</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_asn</span><span class="p">(</span><span class="n">asn</span><span class="p">):</span>
+                        <span class="k">print</span> <span class="s">&quot;Could not process ASN &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+
+        <span class="c"># Save each Net object that we find</span>
+        <span class="k">if</span> <span class="s">&#39;net&#39;</span> <span class="ow">in</span> <span class="n">res</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="n">res</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">]:</span>
+                <span class="p">(</span><span class="n">fresh</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="o">=</span> <span class="n">resob</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="s">&#39;net&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">data</span> <span class="ow">and</span> <span class="s">&#39;net&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">startAddr</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;startAddress&#39;</span><span class="p">]</span>
+                    <span class="n">endAddr</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;endAddress&#39;</span><span class="p">]</span>
+                    <span class="n">oaslist</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="k">if</span> <span class="s">&#39;originASes&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">originAS</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;net&#39;</span><span class="p">][</span><span class="s">&#39;originASes&#39;</span><span class="p">]</span>
+                        <span class="c"># Check if we have a dict</span>
+                        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">originAS</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span> 
+                            <span class="c"># The dict element could contain a list</span>
+                            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">originAS</span><span class="p">[</span><span class="s">&#39;originAS&#39;</span><span class="p">],</span> <span class="nb">list</span><span class="p">):</span>
+                                <span class="k">for</span> <span class="n">oas</span> <span class="ow">in</span> <span class="n">originAS</span><span class="p">[</span><span class="s">&#39;originAS&#39;</span><span class="p">]:</span>
+                                    <span class="n">asstr</span> <span class="o">=</span> <span class="n">oas</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;AS&quot;</span><span class="p">,</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+                                    <span class="n">oaslist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asstr</span><span class="p">)</span>
+                            <span class="k">else</span><span class="p">:</span>
+                                <span class="n">asstr</span> <span class="o">=</span> <span class="n">originAS</span><span class="p">[</span><span class="s">&#39;originAS&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;AS&quot;</span><span class="p">,</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+                                <span class="n">oaslist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asstr</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="c"># we have a list</span>
+                            <span class="k">for</span> <span class="n">oas</span> <span class="ow">in</span> <span class="n">originAS</span><span class="p">:</span> 
+                                <span class="n">asstr</span> <span class="o">=</span> <span class="n">oas</span><span class="p">[</span><span class="s">&#39;originAS&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;AS&quot;</span><span class="p">,</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+                                <span class="n">oaslist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asstr</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_net</span><span class="p">(</span><span class="n">startAddr</span><span class="p">,</span> <span class="n">endAddr</span><span class="p">,</span> <span class="n">oaslist</span><span class="p">):</span>
+                        <span class="k">print</span> <span class="s">&quot;Could not process Net handle: &quot;</span> <span class="o">+</span> <span class="n">h</span>
+
+        <span class="c"># Compare against route views</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compare</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="RVComparatorRes"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes">[docs]</a><span class="k">class</span> <span class="nc">RVComparatorRes</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Class for encapsulating the comparator result.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+
+<div class="viewcode-block" id="RVComparatorRes.add_unknown_oasn"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_oasn">[docs]</a>    <span class="k">def</span> <span class="nf">add_unknown_oasn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">asn</span><span class="p">,</span> <span class="n">pfx</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Register an unknown originating AS.</span>
+
+<span class="sd">        Register the ASN originating a known prefix but was not</span>
+<span class="sd">        configured as the originating AS in whois.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            asn: The (known) ASN originating the prefix.</span>
+<span class="sd">            pfx: The prefix from a known block that was originated.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ah</span> <span class="o">=</span> <span class="s">&quot;AS&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ah</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;oasn&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;oasn&#39;</span><span class="p">][</span><span class="n">ah</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pfx</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;oasn&#39;</span><span class="p">][</span><span class="n">ah</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">pfx</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="RVComparatorRes.get_unknown_oasn"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_oasn">[docs]</a>    <span class="k">def</span> <span class="nf">get_unknown_oasn</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of unknown originating ASNs.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that maps ASNs to the prefix values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;oasn&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;oasn&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">{}</span>
+</div>
+<div class="viewcode-block" id="RVComparatorRes.add_unknown_asn"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_asn">[docs]</a>    <span class="k">def</span> <span class="nf">add_unknown_asn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">asn</span><span class="p">,</span> <span class="n">pfxlist</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Register an unknown AS.</span>
+
+<span class="sd">        Register the previously unknown ASN that was found to originate</span>
+<span class="sd">        a known prefix. </span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            asn: The (unknown) ASN originating the prefix.</span>
+<span class="sd">            pfx: The prefix from a known block that was originated.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ah</span> <span class="o">=</span> <span class="s">&quot;AS&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ah</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="n">ah</span><span class="p">]</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">pfxlist</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">][</span><span class="n">ah</span><span class="p">]</span> <span class="o">=</span> <span class="n">pfxlist</span>
+</div>
+<div class="viewcode-block" id="RVComparatorRes.get_unknown_asn"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_asn">[docs]</a>    <span class="k">def</span> <span class="nf">get_unknown_asn</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of unknown ASNs.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that maps ASNs to the prefix values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;asn&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;asn&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">{}</span>
+</div>
+<div class="viewcode-block" id="RVComparatorRes.add_unknown_pfx"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.add_unknown_pfx">[docs]</a>    <span class="k">def</span> <span class="nf">add_unknown_pfx</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">asn</span><span class="p">,</span> <span class="n">pfx</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Register an unknown prefix.</span>
+
+<span class="sd">        Register the previously unknown prefix that was originated from</span>
+<span class="sd">        a known ASN.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            asn: The known ASN originating the prefix.</span>
+<span class="sd">            pfx: The unknown prefix that was originated.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ah</span> <span class="o">=</span> <span class="s">&quot;AS&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">asn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pfx</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;pfx&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;pfx&#39;</span><span class="p">][</span><span class="n">pfx</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ah</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;pfx&#39;</span><span class="p">][</span><span class="n">pfx</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">ah</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="RVComparatorRes.get_unknown_pfx"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.get_unknown_pfx">[docs]</a>    <span class="k">def</span> <span class="nf">get_unknown_pfx</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of unknown prefixes.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A dict structure that maps prefixes to the ASNs they were</span>
+<span class="sd">            originated from.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;pfx&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">unknown</span><span class="p">[</span><span class="s">&#39;pfx&#39;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">{}</span>
+
+
+    <span class="c"># Process all unknown dependencies that were detected in Routeviews</span></div>
+<div class="viewcode-block" id="RVComparatorRes.process_unknown_resources"><a class="viewcode-back" href="../../map_resources.html#map_resources.whois_rv_cmp.RVComparatorRes.process_unknown_resources">[docs]</a>    <span class="k">def</span> <span class="nf">process_unknown_resources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Process all unknown dependencies.</span>
+
+<span class="sd">        Feed all unknown dependencies that were detected in</span>
+<span class="sd">        Routeviews through the WhoisAnalyzer object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            analyzer(WhoisAnalyzer): the analyzer object</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">analyzer</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_unknown_asn</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">o_h</span> <span class="ow">in</span> <span class="n">objs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">comment</span> <span class="o">=</span> <span class="s">&quot;Unknown &quot;</span> <span class="o">+</span> <span class="n">o_h</span> <span class="o">+</span> <span class="s">&quot; originating &quot;</span> <span class="o">+</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">objs</span><span class="p">[</span><span class="n">o_h</span><span class="p">]))</span>
+            <span class="c"># XXX Dont Process new collections automatically</span>
+            <span class="c"># analyzer.process_new_collection(&#39;asn&#39;, o_h, comment)</span>
+            <span class="n">analyzer</span><span class="o">.</span><span class="n">append_message</span><span class="p">(</span><span class="n">comment</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_unknown_pfx</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">o_h</span> <span class="ow">in</span> <span class="n">objs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">comment</span> <span class="o">=</span> <span class="s">&quot;Unknown prefix &quot;</span> <span class="o">+</span> <span class="n">o_h</span> <span class="o">+</span> <span class="s">&quot; originated from &quot;</span> <span class="o">+</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">objs</span><span class="p">[</span><span class="n">o_h</span><span class="p">]))</span>
+            <span class="c"># XXX Dont Process new collections automatically</span>
+            <span class="c"># analyzer.process_new_collection(&#39;cidr&#39;, o_h, comment)</span>
+            <span class="n">analyzer</span><span class="o">.</span><span class="n">append_message</span><span class="p">(</span><span class="n">comment</span><span class="p">)</span>
+        <span class="n">objs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_unknown_oasn</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">o_h</span> <span class="ow">in</span> <span class="n">objs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">comment</span> <span class="o">=</span> <span class="s">&quot;Origination for &quot;</span> <span class="o">+</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">objs</span><span class="p">[</span><span class="n">o_h</span><span class="p">]))</span> <span class="o">+</span> <span class="s">&quot; from &quot;</span> <span class="o">+</span> <span class="n">o_h</span> <span class="o">+</span> <span class="s">&quot; is inconsistent with whois&quot;</span>
+            <span class="n">analyzer</span><span class="o">.</span><span class="n">append_message</span><span class="p">(</span><span class="n">comment</span><span class="p">)</span>
+</pre></div></div></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Parsons Corp..
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
