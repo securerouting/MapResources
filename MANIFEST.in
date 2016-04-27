@@ -1,0 +1,5 @@
+include LICENSE README 
+recursive-include map_resources *.py
+recursive-include docs *
+recursive-include tests *
+prune docs_src
