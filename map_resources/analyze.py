@@ -214,7 +214,6 @@ class WhoisAnalyzer:
         for g in graphs:
             if g.size() == 0:
                 continue
-            parts = community.best_partition(g) 
             c = defaultdict(list)
             relevant = False
             for n in g.nodes():
@@ -227,6 +226,7 @@ class WhoisAnalyzer:
                             break
             if relevant:
                 resources.append(c)
+                parts = community.best_partition(g) 
                 for (s, d) in g.edges():
                     links[s].append(d)
                     communities[s] = parts.get(s)
