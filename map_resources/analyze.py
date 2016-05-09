@@ -610,8 +610,13 @@ class ResourceReporter:
                         pobj.fill_draw_attribs(node_h, n.attr)
                     n.attr['style'] = 'filled'
                     n.attr['fillcolor'] = colors[self.communities[node_h]] + ":white"
+                        
                     # All parent objects in the list will be the same
                     break
+            else:
+                n.attr['color'] = 'red'
+                n.attr['penwidth'] = 3
+                
         return A
 
     def display_graph(self):
