@@ -205,7 +205,7 @@ class WhoisAnalyzer:
         lfilt = defaultdict(list)
         for k in l.keys():
             if k not in x:
-                lfilt[k] = [e for e in l[k] if e not in x]
+                lfilt[k] = [e for e in l[k] if e not in x and e != None]
         G = net.from_dict_of_lists(lfilt)
         graphs = net.connected_component_subgraphs(G)
         resources = []
