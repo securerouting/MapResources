@@ -656,6 +656,7 @@ class ResourceReporter:
         A = self.get_agraph(G, o)
 #        A.layout(prog=LAYOUT, args='-Goverlap=false -Gsize=12,8\!')
         #A.layout(prog=LAYOUT, args='-Goverlap=false')
+#        A.layout(prog=LAYOUT, args='-Nfontsize=0 -Goverlap=false -Gsplines=true')
         A.layout(prog=LAYOUT, args='-Goverlap=false -Gsplines=true')
 #       print A.to_string()
         if outputfile:
