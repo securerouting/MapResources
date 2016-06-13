@@ -13,7 +13,7 @@ Suppose we wish to obtain the graph of resources assigned ARIN. We
 know that one of the organizational handles for ARIN is 'ARIN', thus
 we can use this handle as one of our starting points:: 
 
-    $ python map_whois.py -X -o ARIN -g ARIN.svg
+    $ python map_whois.py -X -o ARIN -g ARIN.png
 
 The -o option specifies the organizational handle of 'ARIN', while
 the -g option specifies the name of the file for the resource graph.
@@ -32,7 +32,7 @@ host:port' option. The -D option is the default.
 The graph produced by the above command is shown below:
 
 
-.. image:: /images/ARIN-t25.svg
+.. image:: /images/ARIN-t25.png
    :height: 500px
    :width: 1000px
 
@@ -56,9 +56,9 @@ We note the following:
 If we re-run the above command (this time, with a local DB store)
 with the -t 51 option, we get a different output::
 
-    $ python map_whois.py -o ARIN -t 51 -g ARIN.svg
+    $ python map_whois.py -o ARIN -t 51 -g ARIN.png
 
-.. image:: /images/ARIN-t51.svg
+.. image:: /images/ARIN-t51.png
 
 
 As can be seen from the figure, a much larger set of resources are
@@ -79,9 +79,9 @@ The command that we use and the image that is produced as a result are
 as follows::
 
     $ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
-            -t 51 -g ARIN.svg
+            -t 51 -g ARIN.png
 
-.. image:: /images/ARIN-multiple.svg
+.. image:: /images/ARIN-multiple.png
 
 
 The figure shows two different clusters of resources. This explains why
@@ -112,7 +112,7 @@ For example, given an SQLite file 'rib.sqlite' containing the Route
 Views RIB data, the following command lists a number of 'unknown' ASNs:: 
 
     $ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
-            -t 51 -g ARIN.svg -R rib.sqlite
+            -t 51 -g ARIN.png -R rib.sqlite
 
 However most (if not all) such ASNs correspond to different clusters of
 resources that belong to other organizations that are recipients of
@@ -130,7 +130,7 @@ the different resources found as part of the mapping operation can be
 generated using the -r option to map_whois::
 
     $ python map_whois.py -o ARIN -a AS10745 -a AS394018 \
-        -t 51 -g ARIN.svg -r report.html
+        -t 51 -g ARIN.png -r report.html
 
 Note that the report formating is highly primitive and is a work in
 progress.

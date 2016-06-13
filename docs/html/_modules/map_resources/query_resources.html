@@ -2,7 +2,7 @@
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
 
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
@@ -26,24 +26,13 @@
     <link rel="top" title="map_resources  documentation" href="../../index.html" />
     <link rel="up" title="Module code" href="../index.html" />
    
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
   
-  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
 
   </head>
   <body role="document">
-    <div class="related" role="navigation" aria-label="related navigation">
-      <h3>Navigation</h3>
-      <ul>
-        <li class="right" style="margin-right: 10px">
-          <a href="../../genindex.html" title="General Index"
-             accesskey="I">index</a></li>
-        <li class="right" >
-          <a href="../../py-modindex.html" title="Python Module Index"
-             >modules</a> |</li>
-        <li class="nav-item nav-item-0"><a href="../../index.html">map_resources  documentation</a> &raquo;</li>
-          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
-      </ul>
-    </div>  
+  
 
     <div class="document">
       <div class="documentwrapper">
@@ -51,7 +40,7 @@
           <div class="body" role="main">
             
   <h1>Source code for map_resources.query_resources</h1><div class="highlight"><pre>
-<span class="c">#!/usr/bin/python</span>
+<span></span><span class="ch">#!/usr/bin/python</span>
 
 <span class="sd">&quot;&quot;&quot; query_resource.py - Query whois resources</span>
 
@@ -68,67 +57,73 @@
 <span class="kn">import</span> <span class="nn">sys</span>
 <span class="kn">from</span> <span class="nn">bson</span> <span class="kn">import</span> <span class="n">json_util</span>
 
-<span class="n">ap</span> <span class="o">=</span> <span class="n">WhoisOptParser</span><span class="p">(</span><span class="s">&quot;query_resources&quot;</span><span class="p">)</span>
+<span class="n">ap</span> <span class="o">=</span> <span class="n">WhoisOptParser</span><span class="p">(</span><span class="s2">&quot;query_resources&quot;</span><span class="p">)</span>
 <span class="n">__doc__</span> <span class="o">+=</span> <span class="n">ap</span><span class="o">.</span><span class="n">get_help</span><span class="p">()</span>
 
 
 <div class="viewcode-block" id="main"><a class="viewcode-back" href="../../map_resources.html#map_resources.query_resources.main">[docs]</a><span class="k">def</span> <span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">):</span>
 
     <span class="n">opts</span> <span class="o">=</span> <span class="n">ap</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
-    <span class="n">store</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s">&#39;store&#39;</span><span class="p">]</span>
-    <span class="n">objlist</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s">&#39;objlist&#39;</span><span class="p">]</span>
-    <span class="n">jsonfile</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s">&#39;jsonfile&#39;</span><span class="p">]</span>
+    <span class="n">store</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s1">&#39;store&#39;</span><span class="p">]</span>
+    <span class="n">objlist</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s1">&#39;objlist&#39;</span><span class="p">]</span>
+    <span class="n">jsonfile</span> <span class="o">=</span> <span class="n">opts</span><span class="p">[</span><span class="s1">&#39;jsonfile&#39;</span><span class="p">]</span>
 
     <span class="n">resources</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
     <span class="n">f</span> <span class="o">=</span> <span class="n">WhoisObjectFormatter</span><span class="p">(</span><span class="n">store</span><span class="p">)</span>
 
-    <span class="c"># Get the various resource types and URIs </span>
+    <span class="c1"># Get the various resource types and URIs </span>
     <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">objlist</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
         <span class="n">typepfx</span> <span class="o">=</span> <span class="n">objlist</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
         <span class="p">(</span><span class="n">r_handle</span><span class="p">,</span> <span class="n">idstrlist</span><span class="p">)</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">get_idstr</span><span class="p">(</span><span class="n">typepfx</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
         <span class="k">for</span> <span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span> <span class="ow">in</span> <span class="n">idstrlist</span><span class="p">:</span>
             <span class="n">obj</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="c"># Check if we need to fetch extended info</span>
-            <span class="k">if</span> <span class="n">opts</span><span class="p">[</span><span class="s">&#39;extended&#39;</span><span class="p">]:</span>
-                <span class="k">if</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s">&#39;net&#39;</span><span class="p">:</span>
+            <span class="c1"># Check if we need to fetch extended info</span>
+            <span class="k">if</span> <span class="n">opts</span><span class="p">[</span><span class="s1">&#39;extended&#39;</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s1">&#39;net&#39;</span><span class="p">:</span>
                     <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_netinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
-                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s">&#39;org&#39;</span><span class="p">:</span>
+                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s1">&#39;org&#39;</span><span class="p">:</span>
                     <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_orginfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
-                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s">&#39;poc&#39;</span><span class="p">:</span>
+                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s1">&#39;poc&#39;</span><span class="p">:</span>
                     <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_pocinfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
-                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s">&#39;asn&#39;</span><span class="p">:</span>
+                <span class="k">elif</span> <span class="n">ctype</span> <span class="o">==</span> <span class="s1">&#39;asn&#39;</span><span class="p">:</span>
                     <span class="n">obj</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">get_asninfo</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="n">obj</span> <span class="o">=</span> <span class="n">h</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">obj</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">ctype</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
             <span class="n">res_json</span> <span class="o">=</span> <span class="n">json_util</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
-            <span class="n">outstr</span> <span class="o">=</span> <span class="n">k</span> <span class="o">+</span> <span class="s">&quot;|&quot;</span> <span class="o">+</span> <span class="n">res_json</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span>
-            <span class="k">if</span> <span class="n">opts</span><span class="p">[</span><span class="s">&#39;verbose&#39;</span><span class="p">]:</span>
+            <span class="n">outstr</span> <span class="o">=</span> <span class="n">k</span> <span class="o">+</span> <span class="s2">&quot;|&quot;</span> <span class="o">+</span> <span class="n">res_json</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="k">if</span> <span class="n">opts</span><span class="p">[</span><span class="s1">&#39;verbose&#39;</span><span class="p">]:</span>
                 <span class="k">print</span> <span class="n">outstr</span>
             <span class="k">if</span> <span class="n">jsonfile</span><span class="p">:</span>
-                <span class="n">jsonfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">outstr</span><span class="p">)</span>
-</div>
-<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+                <span class="n">jsonfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">outstr</span><span class="p">)</span></div>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
     <span class="n">main</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+
 </pre></div>
 
           </div>
         </div>
       </div>
       <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
-        <div class="sphinxsidebarwrapper">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
 <div id="searchbox" style="display: none" role="search">
   <h3>Quick search</h3>
     <form class="search" action="../../search.html" method="get">
-      <input type="text" name="q" />
-      <input type="submit" value="Go" />
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
       <input type="hidden" name="check_keywords" value="yes" />
       <input type="hidden" name="area" value="default" />
     </form>
-    <p class="searchtip" style="font-size: 90%">
-    Enter search terms or a module, class or function name.
-    </p>
 </div>
 <script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
@@ -139,8 +134,8 @@
       &copy;2015, Parsons Corp..
       
       |
-      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
-      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.4</a>
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.3</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
       
     </div>
 
